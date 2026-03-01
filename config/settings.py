@@ -29,9 +29,9 @@ INSTALLED_APPS = [
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
-    "apps.seo",
+    "apps.seo.apps.SeoConfig",
 ]
-
+TEST_RUNNER = "django.test.runner.DiscoverRunner"
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
