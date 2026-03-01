@@ -8,13 +8,19 @@ from drf_spectacular.views import (
     SpectacularAPIView,
     SpectacularSwaggerView,
 )
+from apps.seo.auth_views import (
+    PublicTokenObtainPairView,
+    PublicTokenRefreshView,
+)
+
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
 
     # JWT
-    path("api/auth/login/", TokenObtainPairView.as_view(), name="jwt-login"),
-    path("api/auth/refresh/", TokenRefreshView.as_view(), name="jwt-refresh"),
+    path("api/auth/login/", PublicTokenObtainPairView.as_view(), name="jwt-login"),
+    path("api/auth/refresh/", PublicTokenRefreshView.as_view(), name="jwt-refresh"),
 
     # OpenAPI schema
     path("api/schema/", SpectacularAPIView.as_view(), name="schema"),

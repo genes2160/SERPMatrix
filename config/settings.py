@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import urllib.parse as up
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -41,7 +42,9 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
-
+AUTHENTICATION_BACKENDS = [
+    "django.contrib.auth.backends.ModelBackend",
+]
 ROOT_URLCONF = "config.urls"
 
 TEMPLATES = [
@@ -156,6 +159,7 @@ CELERY_TASK_ROUTES = {
     "apps.seo.tasks.steps.serp_capture_batch": {"queue": "seo_serp"},
     "apps.seo.tasks.steps.fetch_competitors": {"queue": "seo_heavy"},
     "apps.seo.tasks.steps.analyze_and_recommend": {"queue": "seo_heavy"},
+    "apps.seo.tasks.outbox.dispatch": {"queue": "control"},
 }
 
 # -------------------------------------------------
@@ -163,3 +167,14 @@ CELERY_TASK_ROUTES = {
 # -------------------------------------------------
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+SEO_DISPATCH_MODE = "instant"  # or "outbox"
+
+CELERY_BEAT_SCHEDULE = {
+    "outbox-dispatcher": {
+        "task": "apps.seo.tasks.outbox.dispatch",
+        "schedule": 10.0,  # every 10 seconds
+    },
+}
+
+TESTING = "test" in sys.argv

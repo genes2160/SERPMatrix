@@ -244,3 +244,41 @@ class Recommendation(models.Model):
             models.Index(fields=["audit_run", "priority"]),
             models.Index(fields=["action_type"]),
         ]
+        
+
+class OutboxEvent(models.Model):
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING"
+        PROCESSING = "PROCESSING"
+        SENT = "SENT"
+        FAILED = "FAILED"
+        DLQ = "DLQ"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    event_type = models.CharField(max_length=100, db_index=True)
+    aggregate_id = models.UUIDField(db_index=True)  # run_id
+    payload = models.JSONField()
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+
+    attempts = models.IntegerField(default=0)
+    max_attempts = models.IntegerField(default=5)
+
+    next_retry_at = models.DateTimeField(null=True, blank=True, db_index=True)
+
+    last_error = models.TextField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "next_retry_at"]),
+        ]

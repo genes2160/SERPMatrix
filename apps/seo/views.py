@@ -1,8 +1,21 @@
-from rest_framework.views import APIView
+# apps/seo/views.py
+
+from rest_framework.generics import (
+    GenericAPIView,
+    ListAPIView,
+    RetrieveAPIView,
+    CreateAPIView,
+)
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import AllowAny
+from drf_spectacular.utils import extend_schema
 from django.shortcuts import get_object_or_404
+
+from django.db import connections
+from django.db.utils import OperationalError
+from django.conf import settings
+import redis
 
 from apps.seo.models import ClientSite, AuditRun
 from apps.seo.serializers import (
@@ -11,16 +24,14 @@ from apps.seo.serializers import (
     CreateRunSerializer,
     RunResponseSerializer,
 )
-from apps.seo.services import site_service, run_service
-from django.db import connections
-from django.db.utils import OperationalError
-from django.conf import settings
-import redis
+from apps.seo.services.site_service import create_site
+from apps.seo.services.run_service import run_service
 
-
-class HealthCheckView(APIView):
+class HealthCheckView(GenericAPIView):
     permission_classes = [AllowAny]
+    authentication_classes = []
 
+    @extend_schema(responses=dict)
     def get(self, request):
         health_status = {
             "status": "ok",
@@ -32,9 +43,7 @@ class HealthCheckView(APIView):
 
         overall_ok = True
 
-        # -----------------------------
         # Database check
-        # -----------------------------
         try:
             db_conn = connections["default"]
             db_conn.cursor().execute("SELECT 1;")
@@ -42,12 +51,9 @@ class HealthCheckView(APIView):
             health_status["services"]["database"] = "down"
             overall_ok = False
 
-        # -----------------------------
         # Redis check
-        # -----------------------------
         try:
-            redis_url = settings.CELERY_BROKER_URL
-            r = redis.from_url(redis_url)
+            r = redis.from_url(settings.CELERY_BROKER_URL)
             r.ping()
         except Exception:
             health_status["services"]["redis"] = "down"
@@ -59,33 +65,47 @@ class HealthCheckView(APIView):
 
         return Response(health_status)
 
-class ClientSiteView(APIView):
+class ClientSiteListCreateView(GenericAPIView):
+    queryset = ClientSite.objects.all().order_by("-created_at")
+    serializer_class = CreateSiteSerializer
 
+    @extend_schema(
+        request=CreateSiteSerializer,
+        responses=SiteResponseSerializer,
+    )
     def post(self, request):
-        serializer = CreateSiteSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        site = site_service.create_site(**serializer.validated_data)
+        site = create_site(**serializer.validated_data)
 
         return Response(
             SiteResponseSerializer(site).data,
             status=status.HTTP_201_CREATED,
         )
 
-    def get(self, request, site_id=None):
-        if site_id:
-            site = get_object_or_404(ClientSite, id=site_id)
-            return Response(SiteResponseSerializer(site).data)
-
-        # LIST
-        sites = ClientSite.objects.all().order_by("-created_at")
+    @extend_schema(responses=SiteResponseSerializer(many=True))
+    def get(self, request):
+        sites = self.get_queryset()
         return Response(SiteResponseSerializer(sites, many=True).data)
-class AuditRunView(APIView):
 
+class ClientSiteDetailView(RetrieveAPIView):
+    queryset = ClientSite.objects.all()
+    serializer_class = SiteResponseSerializer
+    lookup_field = "id"
+    lookup_url_kwarg = "site_id"
+    
+class AuditRunCreateView(GenericAPIView):
+    serializer_class = CreateRunSerializer
+
+    @extend_schema(
+        request=CreateRunSerializer,
+        responses=RunResponseSerializer,
+    )
     def post(self, request, site_id):
         site = get_object_or_404(ClientSite, id=site_id)
 
-        serializer = CreateRunSerializer(data=request.data)
+        serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         run = run_service.create_run(
@@ -98,13 +118,15 @@ class AuditRunView(APIView):
             status=status.HTTP_201_CREATED,
         )
 
-    def get(self, request, run_id):
-        run = get_object_or_404(AuditRun, id=run_id)
-        return Response(RunResponseSerializer(run).data)
+class AuditRunDetailView(RetrieveAPIView):
+    queryset = AuditRun.objects.all()
+    serializer_class = RunResponseSerializer
+    lookup_field = "id"
+    lookup_url_kwarg = "run_id"
+    
+class RetryRunView(GenericAPIView):
 
-
-class RetryRunView(APIView):
-
+    @extend_schema(responses=RunResponseSerializer)
     def post(self, request, run_id):
         run = get_object_or_404(AuditRun, id=run_id)
         run = run_service.retry_run(run=run)
