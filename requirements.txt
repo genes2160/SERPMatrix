@@ -6,3 +6,4 @@ redis>=5.0
 python-dotenv>=1.0
 flower>=2.0
 djangorestframework-simplejwt
+drf-spectacular
