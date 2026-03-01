@@ -59,7 +59,16 @@ services:
       - .:/app
     depends_on:
       - web
-
+  worker_outbox:
+    build: .
+    container_name: ${PROJECT_NAME}_worker_outbox
+    env_file:
+      - .env
+    command: celery -A config worker -Q control -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
   worker_serp:
     build: .
     container_name: ${PROJECT_NAME}_worker_serp
