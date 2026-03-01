@@ -1,0 +1,99 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:${POSTGRES_VERSION}
+    container_name: ${PROJECT_NAME}_db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT}:${DB_PORT}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:${REDIS_VERSION}
+    container_name: ${PROJECT_NAME}_redis
+    ports:
+      - "${REDIS_PORT}:${REDIS_PORT}"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build: .
+    container_name: ${PROJECT_NAME}_web
+    env_file:
+      - .env
+    command: >
+      bash -c "
+      python manage.py migrate &&
+      python manage.py runserver 0.0.0.0:${DJANGO_PORT}
+      "
+    volumes:
+      - .:/app
+    ports:
+      - "${DJANGO_PORT}:${DJANGO_PORT}"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker_light:
+    build: .
+    container_name: ${PROJECT_NAME}_worker_light
+    env_file:
+      - .env
+    command: celery -A config worker -Q seo_light -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+
+  worker_serp:
+    build: .
+    container_name: ${PROJECT_NAME}_worker_serp
+    env_file:
+      - .env
+    command: celery -A config worker -Q seo_serp -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+
+  worker_heavy:
+    build: .
+    container_name: ${PROJECT_NAME}_worker_heavy
+    env_file:
+      - .env
+    command: celery -A config worker -Q seo_heavy -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - web
+
+  flower:
+    build: .
+    container_name: ${PROJECT_NAME}_flower
+    env_file:
+      - .env
+    command: celery -A config flower --port=${FLOWER_PORT}
+    ports:
+      - "${FLOWER_PORT}:${FLOWER_PORT}"
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+
+volumes:
+  postgres_data:
