@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 from datetime import timedelta
 import urllib.parse as up
+import sys
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -175,3 +176,5 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": 10.0,  # every 10 seconds
     },
 }
+
+TESTING = "test" in sys.argv

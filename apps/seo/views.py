@@ -24,7 +24,8 @@ from apps.seo.serializers import (
     CreateRunSerializer,
     RunResponseSerializer,
 )
-from apps.seo.services import site_service, run_service
+from apps.seo.services.site_service import create_site
+from apps.seo.services.run_service import run_service
 
 class HealthCheckView(GenericAPIView):
     permission_classes = [AllowAny]
@@ -76,7 +77,7 @@ class ClientSiteListCreateView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        site = site_service.create_site(**serializer.validated_data)
+        site = create_site(**serializer.validated_data)
 
         return Response(
             SiteResponseSerializer(site).data,

@@ -15,6 +15,7 @@ from apps.seo.models import OutboxEvent
 class RunService:
     @staticmethod
     def create_run(*, site: ClientSite, config: Dict[str, Any]) -> AuditRun:
+        from apps.seo.tasks.run import run_start
         with transaction.atomic():
             run = AuditRun.objects.create(
                 client_site=site,
@@ -27,29 +28,31 @@ class RunService:
                 for step_name in RUN_STEP_ORDER
             ])
 
-            def dispatch():
-                mode = getattr(settings, "SEO_DISPATCH_MODE", "instant")
+            if settings.SEO_DISPATCH_MODE == "instant":
 
-                if mode == "instant":
-                    from apps.seo.tasks.run import run_start
+                def enqueue():
                     run_start.delay(str(run.id), None)
 
-                elif mode == "outbox":
-                    OutboxEvent.objects.create(
-                        event_type="audit_run_start",
-                        aggregate_id=run.id,
-                        payload={
-                            "run_id": str(run.id),
-                            "resume_from": None,
-                        },
-                    )
+                if settings.TESTING:
+                    enqueue()
+                else:
+                    transaction.on_commit(enqueue)
 
-            transaction.on_commit(dispatch)
+            else:  # outbox mode
+                OutboxEvent.objects.create(
+                    event_type="audit_run_start",
+                    aggregate_id=run.id,
+                    payload={
+                        "run_id": str(run.id),
+                        "resume_from": None,
+                    },
+                )
             return run
         
         
     @staticmethod
     def retry_run(*, run: AuditRun) -> AuditRun:
+        from apps.seo.tasks.run import run_start
         """
         Step-level retry:
         - find first FAILED step; if none, find first non-success step
@@ -98,12 +101,26 @@ class RunService:
             run.finished_at = None
             run.save(update_fields=["status", "error_summary", "started_at", "finished_at"])
 
-            def enqueue(resume_from):
-                from apps.seo.tasks.run import run_start
-                run_start.delay(str(run.id), resume_from)
+            if settings.SEO_DISPATCH_MODE == "instant":
 
-            # enqueue AFTER commit
-            transaction.on_commit(enqueue)
+                def enqueue():
+                    run_start.delay(str(run.id), None)
+
+                if settings.TESTING:
+                    enqueue()
+                else:
+                    transaction.on_commit(enqueue)
+
+            else:  # outbox mode
+                OutboxEvent.objects.create(
+                    event_type="audit_run_start",
+                    aggregate_id=run.id,
+                    payload={
+                        "run_id": str(run.id),
+                        "resume_from": None,
+                    },
+                )
+            
             return run
 
 
