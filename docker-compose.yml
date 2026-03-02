@@ -90,7 +90,17 @@ services:
       - .:/app
     depends_on:
       - web
-
+  beat:
+    build: .
+    container_name: ${PROJECT_NAME}_beat
+    env_file:
+      - .env
+    command: celery -A config beat -l info
+    volumes:
+      - .:/app
+    depends_on:
+      - redis
+      - db
   flower:
     build: .
     container_name: ${PROJECT_NAME}_flower

@@ -27,6 +27,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
 
+    "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
     "drf_spectacular",
@@ -36,6 +37,7 @@ TEST_RUNNER = "django.test.runner.DiscoverRunner"
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -46,6 +48,14 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
 ]
 ROOT_URLCONF = "config.urls"
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+SERP_API_KEY = os.getenv("SERP_API_KEY")
+BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
+
 
 TEMPLATES = [
     {
@@ -168,12 +178,16 @@ CELERY_TASK_ROUTES = {
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
-SEO_DISPATCH_MODE = "instant"  # or "outbox"
+SEO_DISPATCH_MODE = "outbox"  # or "outbox"
 
 CELERY_BEAT_SCHEDULE = {
     "outbox-dispatcher": {
         "task": "apps.seo.tasks.outbox.dispatch",
         "schedule": 10.0,  # every 10 seconds
+    },
+    "run-reconciler": {  # NEW:
+        "task": "apps.seo.tasks.reconciler.reconcile_runs",
+        "schedule": 15.0,  # NEW: every 15 seconds (tune later)
     },
 }
 

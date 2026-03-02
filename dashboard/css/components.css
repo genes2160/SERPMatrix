@@ -1,0 +1,44 @@
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+
+.data-table th {
+    background: #f5f5f5;
+    text-align: left;
+}
+
+.toast {
+    position: fixed;
+    right: 20px;
+    top: 20px;
+    padding: 12px 16px;
+    border-radius: 4px;
+    color: white;
+}
+
+.toast-success {
+    background: #2e7d32;
+}
+
+.toast-error {
+    background: #c62828;
+}
+
+.topbar {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 20px;
+    background: #1f2937;
+    color: white;
+}
+
+nav button {
+    margin-left: 10px;
+}

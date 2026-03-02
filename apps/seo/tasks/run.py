@@ -25,8 +25,9 @@ def run_start(run_id: str, resume_from: Optional[str] = None):
         return {"run_id": run_id, "status": run.status}
 
     if run.status != AuditRun.Status.RUNNING:
-        run.status = AuditRun.Status.RUNNING
-        run.started_at = run.started_at or timezone.now()
+        # run.status = AuditRun.Status.RUNNING
+        # run.started_at = run.started_at or timezone.now()
+        run.started_at = timezone.now()
         run.save(update_fields=["status", "started_at"])
 
     # Build chain from resume point
@@ -43,15 +44,17 @@ def run_start(run_id: str, resume_from: Optional[str] = None):
         analyze_and_recommend,
         finalize_run,
     )
+    # from apps.seo.tasks.ai_steps import ai_analyze
 
     tasks: List = [
-        fetch_client_page.s(run_id),
-        classify_site.s(run_id),
-        build_keyword_set.s(run_id),
-        serp_capture_batch.s(run_id),
-        fetch_competitors.s(run_id),
-        analyze_and_recommend.s(run_id),
-        finalize_run.s(run_id),
+        fetch_client_page.si(run_id),
+        classify_site.si(run_id),
+        build_keyword_set.si(run_id),
+        serp_capture_batch.si(run_id),
+        fetch_competitors.si(run_id),
+        analyze_and_recommend.si(run_id),
+        # ai_analyze.si(run_id),
+        finalize_run.si(run_id),
     ]
 
     # slice pipeline
@@ -63,10 +66,3 @@ def run_start(run_id: str, resume_from: Optional[str] = None):
     chain(*pipeline).apply_async()
     return {"run_id": run_id, "status": "started", "resume_from": resume_from}
 
-
-@shared_task(name="apps.seo.tasks.run.finalize_run")
-def finalize_run(run_id: str):
-    """
-    (kept for routing compatibility) — actual finalize logic is in steps.finalize_run.
-    """
-    return {"run_id": run_id, "status": "delegated"}
