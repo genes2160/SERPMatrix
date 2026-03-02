@@ -7,3 +7,8 @@ python-dotenv>=1.0
 flower>=2.0
 djangorestframework-simplejwt
 drf-spectacular
+requests
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+django-cors-headers
+duckduckgo-search

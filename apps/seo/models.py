@@ -1,4 +1,5 @@
 # apps/seo/models.py
+import json
 import uuid
 from django.db import models
 from django.db.models import Q
@@ -40,6 +41,8 @@ class AuditRun(models.Model):
 
     # run-wide computed metrics
     summary = models.JSONField(default=dict, blank=True)
+    ai_summary = models.TextField(null=True, blank=True)
+    ai_meta = models.JSONField(null=True, blank=True)
 
     error_summary = models.TextField(null=True, blank=True)
 
@@ -50,7 +53,17 @@ class AuditRun(models.Model):
             models.Index(fields=["client_site", "-created_at"]),
             models.Index(fields=["status", "-created_at"]),
         ]
-
+        
+    def save(self, *args, **kwargs):
+        if self.config is None:
+            self.config = {}
+        elif not isinstance(self.config, dict):
+            try:
+                parsed = json.loads(self.config)
+                self.config = parsed if isinstance(parsed, dict) else {}
+            except Exception:
+                self.config = {}
+        super().save(*args, **kwargs)
 
 class RunStep(models.Model):
     class StepName(models.TextChoices):
@@ -60,6 +73,8 @@ class RunStep(models.Model):
         SERP = "SERP"
         COMPETITORS = "COMPETITORS"
         ANALYZE = "ANALYZE"
+        # NEW:
+        # AI_ANALYZE = "AI_ANALYZE"
         FINALIZE = "FINALIZE"
 
     class Status(models.TextChoices):
@@ -147,6 +162,12 @@ class PageSnapshot(models.Model):
     raw_html_ref = models.CharField(max_length=512, null=True, blank=True)  # future: s3 key
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["audit_run", "url", "role"],
+                name="uniq_run_url_role"
+            )
+        ]
         indexes = [
             models.Index(fields=["audit_run", "role"]),
             models.Index(fields=["url"]),

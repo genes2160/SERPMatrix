@@ -9,23 +9,6 @@ class CreateSiteSerializer(serializers.Serializer):
     device = serializers.CharField(required=False, default="desktop")
 
 
-class SiteResponseSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ClientSite
-        fields = [
-            "id",
-            "url",
-            "normalized_url",
-            "geo",
-            "language",
-            "device",
-            "created_at",
-        ]
-
-
-class CreateRunSerializer(serializers.Serializer):
-    config = serializers.JSONField(required=False)
-
 
 class RunResponseSerializer(serializers.ModelSerializer):
     class Meta:
@@ -39,3 +22,30 @@ class RunResponseSerializer(serializers.ModelSerializer):
             "started_at",
             "finished_at",
         ]
+        
+class SiteResponseSerializer(serializers.ModelSerializer):
+    runs = RunResponseSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = ClientSite
+        fields = [
+            "id",
+            "url",
+            "normalized_url",
+            "geo",
+            "language",
+            "device",
+            "created_at",
+            "runs",  # added
+        ]
+
+
+class CreateRunSerializer(serializers.Serializer):
+    config = serializers.JSONField(required=False, default=dict)
+
+    def validate_config(self, value):
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise serializers.ValidationError("config must be a JSON object (dict)")
+        return value

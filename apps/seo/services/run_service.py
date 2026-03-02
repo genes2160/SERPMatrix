@@ -52,76 +52,56 @@ class RunService:
         
     @staticmethod
     def retry_run(*, run: AuditRun) -> AuditRun:
+        """
+        Safe retry:
+        - DO NOT reset steps
+        - DO NOT wipe downstream work
+        - Resume from earliest incomplete step
+        """
+
+        from apps.seo.constants import next_resume_step_from_db
         from apps.seo.tasks.run import run_start
-        """
-        Step-level retry:
-        - find first FAILED step; if none, find first non-success step
-        - reset that step and downstream to QUEUED
-        - enqueue run_start(run_id, resume_from=that_step)
-        """
+
+        run = AuditRun.objects.prefetch_related("steps").get(id=run.id)
+
+        resume_from, terminal_error = next_resume_step_from_db(run)
+
+        # Terminal state (exhausted attempts)
+        if terminal_error:
+            run.error_summary = terminal_error
+            run.save(update_fields=["error_summary"])
+            return run
+
+        # Already fully complete
+        if resume_from is None:
+            return run
+
         with transaction.atomic():
-            steps = list(run.steps.all().order_by("created_at"))
 
-            # Determine resume point
-            resume_from: Optional[str] = None
-
-            failed = [s for s in steps if s.status == RunStep.Status.FAILED]
-            if failed:
-                # first failed in pipeline order
-                for name in RUN_STEP_ORDER:
-                    match = next((s for s in failed if s.step_name == name), None)
-                    if match:
-                        resume_from = match.step_name
-                        break
-            else:
-                # first incomplete (not success)
-                for name in RUN_STEP_ORDER:
-                    match = next((s for s in steps if s.step_name == name), None)
-                    if match and match.status != RunStep.Status.SUCCESS:
-                        resume_from = match.step_name
-                        break
-
-            # If everything succeeded, allow retry from start (or you can block)
-            if resume_from is None:
-                resume_from = RUN_STEP_ORDER[0]
-
-            # Reset resume_from + downstream
-            start_index = RUN_STEP_ORDER.index(resume_from)
-            reset_names = set(RUN_STEP_ORDER[start_index:])
-
-            run.steps.filter(step_name__in=reset_names).update(
-                status=RunStep.Status.QUEUED,
-                last_error=None,
-            )
-
-            # Reset run status
-            run.status = AuditRun.Status.QUEUED
-            run.error_summary = None
-            run.started_at = None
-            run.finished_at = None
-            run.save(update_fields=["status", "error_summary", "started_at", "finished_at"])
+            # DO NOT touch steps.
+            # DO NOT reset attempts.
+            # Only enqueue resume event.
 
             if settings.SEO_DISPATCH_MODE == "instant":
 
                 def enqueue():
-                    run_start.delay(str(run.id), None)
+                    run_start.delay(str(run.id), resume_from)
 
                 if settings.TESTING:
                     enqueue()
                 else:
                     transaction.on_commit(enqueue)
 
-            else:  # outbox mode
+            else:
                 OutboxEvent.objects.create(
                     event_type="audit_run_start",
                     aggregate_id=run.id,
                     payload={
                         "run_id": str(run.id),
-                        "resume_from": None,
+                        "resume_from": resume_from,
                     },
                 )
-            
-            return run
 
+        return run
 
 run_service = RunService()
