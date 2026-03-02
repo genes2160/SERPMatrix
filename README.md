@@ -15,6 +15,13 @@ This system is designed to be:
 * 🤖 **AI-extendable** — Structured interpretation layer built in
 
 ---
+<img width="1361" height="634" alt="Screenshot 2026-03-02 191430" src="https://github.com/user-attachments/assets/b2d0d3c2-25e7-4a56-8bf7-4bde605fb49b" />
+<img width="1363" height="636" alt="Screenshot 2026-03-02 191448" src="https://github.com/user-attachments/assets/13823329-79e5-4775-a980-5eea0196cff6" />
+<img width="1359" height="635" alt="Screenshot 2026-03-02 191339" src="https://github.com/user-attachments/assets/40c9c248-e8a5-42b1-af16-a1ab4fd2aa04" />
+<img width="1363" height="616" alt="Screenshot 2026-03-02 191359" src="https://github.com/user-attachments/assets/f22a2c47-3f93-4e3d-a3ee-b137bf09c59a" />
+<img width="1361" height="633" alt="Screenshot 2026-03-02 191324" src="https://github.com/user-attachments/assets/72b09b49-fec8-4830-93a4-b94a26c8a308" />
+
+
 
 # 🎯 System Purpose
 
