@@ -1,260 +1,352 @@
-# 🔎 SEO Audit POC – Django + Celery
+# 🔎 SEO Audit Engine
 
-A simple, scalable, and observable SEO audit backend built with Django.
+### Django • Celery • Outbox Pattern • Step-Orchestrated Workflow
 
-This project is designed as:
+A production-grade, step-driven SEO audit backend built with Django and Celery.
 
-- 🧠 Evidence-first (database is source of truth)
-- 🔁 Fully auditable (every run leaves a trail)
-- ⚙️ Async and scalable (Celery + multiple queues)
-- 📊 Observable (Flower + DB-backed run state)
-- 🧱 Architected for growth (AI interpretation layer later)
+This system is designed to be:
+
+* 🧠 **Evidence-first** — Database is the single source of truth
+* 🔁 **Deterministic** — Step-based execution with strict ordering
+* 🔄 **Self-healing** — Background reconciler resumes stuck runs
+* 📨 **Reliable** — Outbox pattern for guaranteed task dispatch
+* ⚙️ **Horizontally scalable** — Multi-queue Celery architecture
+* 📊 **Observable** — DB-backed timeline + dashboard monitoring
+* 🤖 **AI-extendable** — Structured interpretation layer built in
 
 ---
 
-# 🎯 Purpose
+# 🎯 System Purpose
 
-This POC analyzes a client's website and determines:
+The SEO Audit Engine evaluates a client website and determines:
 
-- Whether it ranks for relevant keywords
-- Who its competitors are
-- Why competitors outrank it
-- What changes are needed to improve ranking
+* Whether it ranks for relevant keywords
+* Who its competitors are
+* Why competitors outrank it
+* What changes will improve ranking
 
-Every audit:
+Every audit run captures:
 
-- Stores SERP snapshots
-- Stores page snapshots
-- Stores keyword sets
-- Stores derived metrics
-- Stores recommendation reasoning
+* Page snapshots
+* Keyword sets (versioned)
+* SERP snapshots
+* Competitor URLs
+* Derived keyword metrics
+* Deterministic recommendations
+* Optional AI interpretation summary
 
 Nothing is ephemeral.
-The database is the source of truth.
+The database is the system of record.
 
 ---
 
-# 🏗 Architecture Overview
-
-Client → API → AuditRun → Celery Tasks → Evidence Tables → Analysis → Recommendations
-
-Queues:
-
-- `seo_light` (fast tasks)
-- `seo_serp` (rate-limited SERP calls)
-- `seo_heavy` (competitor scraping + analysis)
-
-Core principle:
-
-> Flower is visibility.
-> Database is truth.
-
----
-
-# 📂 Project Structure
+# 🏗 System Architecture
 
 ```
-
-seo_poc/
-config/
-apps/
-seo/
-models.py
-services/
-tasks/
-providers/
-docs/
-README.md
-
-````
+Client
+   ↓
+REST API
+   ↓
+AuditRun (DB)
+   ↓
+RunSteps (DB – ordered pipeline)
+   ↓
+OutboxEvent (guaranteed dispatch)
+   ↓
+Celery Workers (multi-queue)
+   ↓
+Evidence Tables
+   ↓
+Analysis
+   ↓
+Recommendations
+   ↓
+Dashboard (Derived Status)
+```
 
 ---
 
-# 🗄 Database Philosophy
+# 🔁 Core Architectural Patterns
 
-The DB captures:
+## 1️⃣ Step-Orchestrated Pipeline
 
-- AuditRun
-- RunStep
-- RunStepAttempt
-- PageSnapshot
-- SerpSnapshot
-- KeywordResult
-- Recommendation
+Each `AuditRun` contains ordered `RunStep` rows:
 
-Each step is:
+```
+FETCH_CLIENT
+CLASSIFY
+KEYWORDS
+SERP
+COMPETITORS
+ANALYZE
+FINALIZE
+```
 
-- Idempotent
-- Logged
-- Retryable
-- Observable
+Rules:
+
+* Each step is idempotent
+* Each step logs attempts
+* Each step records start + finish timestamps
+* Each step stores structured meta
+* Each step can retry independently
+* Run status is derived from step states
+
+There is no hidden state.
+
+---
+
+## 2️⃣ Fully Derived Run Status
+
+Run status is not trusted as authoritative state.
+
+Instead, it is derived from step outcomes:
+
+* FINALIZE success → SUCCESS
+* Any running step → RUNNING
+* Any step failed with max attempts → FAILED
+* Otherwise → QUEUED
+
+This ensures:
+
+* No divergence between worker state and dashboard state
+* Deterministic system behavior
+* Zero reliance on in-memory task state
+
+---
+
+## 3️⃣ Outbox Pattern (Guaranteed Dispatch)
+
+Audit runs do not directly trigger Celery tasks.
+
+Instead:
+
+* An `OutboxEvent` is created in the same DB transaction.
+* A dispatcher worker reads PENDING events.
+* Events are claimed with row-level locking.
+* Tasks are dispatched safely.
+* Failures are retried with exponential backoff.
+* Max-attempt failures move to DLQ.
+
+This guarantees:
+
+* No lost tasks
+* No double dispatch
+* Reliable restart behavior
+
+---
+
+## 4️⃣ Reconciler (Self-Healing Supervisor)
+
+A background Celery task:
+
+* Scans incomplete runs
+* Uses JOIN-based step inspection
+* Determines resume point
+* Enqueues outbox event
+* Avoids in-flight duplicates
+
+The reconciler ensures:
+
+* Stuck runs recover automatically
+* Worker crashes do not corrupt execution
+* Partial runs resume safely
+
+---
+
+## 5️⃣ Multi-Queue Scaling
+
+Workers are separated by workload type:
+
+| Queue       | Purpose                     |
+| ----------- | --------------------------- |
+| `seo_light` | Lightweight tasks           |
+| `seo_serp`  | Rate-limited SERP calls     |
+| `seo_heavy` | Competitor fetch + analysis |
+| `control`   | Outbox + reconciler         |
+
+This enables horizontal scaling and isolation.
+
+---
+
+# 🗄 Database Model Overview
+
+### Core Execution Models
+
+* `AuditRun`
+* `RunStep`
+* `RunStepAttempt`
+* `OutboxEvent`
+
+### Evidence Models
+
+* `PageSnapshot`
+* `SerpSnapshot`
+* `KeywordSetVersion`
+* `KeywordResult`
+* `Recommendation`
 
 Snapshots are immutable.
 Derived metrics are reproducible.
 
 ---
 
-# 🚀 Getting Started
+# 📊 Dashboard & Observability
 
-## 1️⃣ Create virtual environment
+The admin dashboard provides:
 
-```bash
-python -m venv venv
-source venv/bin/activate
-````
+* Live run monitor
+* Step timeline visualization
+* Per-step duration metrics
+* Attempt counts
+* Error panel
+* AI summary view
+* System-derived recommendation table
 
-## 2️⃣ Install dependencies
+Polling stops automatically on terminal states.
 
-```bash
-pip install django djangorestframework celery redis psycopg2-binary
-```
-
-Add to `requirements.txt` if desired.
-
----
-
-## 3️⃣ Configure environment
-
-Set environment variables:
-
-```bash
-export DJANGO_SETTINGS_MODULE=config.settings
-export CELERY_BROKER_URL=redis://localhost:6379/0
-export CELERY_RESULT_BACKEND=redis://localhost:6379/1
-```
+The dashboard reflects derived truth from the database.
 
 ---
 
-## 4️⃣ Run migrations
+# 🤖 AI Interpretation Layer
 
-```bash
-python manage.py makemigrations
-python manage.py migrate
-```
+The system supports an optional AI analysis phase:
+
+* Structured payload only (no raw HTML)
+* Deterministic evidence first
+* AI generates:
+
+  * Summary
+  * Strategic recommendations
+  * Prioritized actions
+* Results persisted in DB
+
+AI augments — it does not replace deterministic logic.
 
 ---
 
-## 5️⃣ Start services
+# 🚀 Getting Started (Docker Recommended)
 
-### Start Redis
+## Run Full Stack
 
 ```bash
-redis-server
+docker compose up --build
 ```
 
-### Start Django
+## Run Tests
 
 ```bash
-python manage.py runserver
-```
-
-### Start Celery workers
-
-Light queue:
-
-```bash
-celery -A config worker -Q seo_light -l info
-```
-
-SERP queue:
-
-```bash
-celery -A config worker -Q seo_serp -l info
-```
-
-Heavy queue:
-
-```bash
-celery -A config worker -Q seo_heavy -l info
-```
-
-### Start Flower (observability)
-
-```bash
-celery -A config flower -l info
+docker compose exec web python manage.py test -v 2
 ```
 
 ---
 
-# 📡 API Endpoints (POC v1)
+# 🧪 Test Coverage
 
-Create site:
+Tests validate:
 
-```
-POST /api/sites
-```
+* API endpoints
+* Run creation
+* Retry behavior
+* Outbox dispatch logic
+* Backoff handling
+* DLQ transitions
+* Authentication enforcement
 
-Create audit run:
+The system is tested against:
 
-```
-POST /api/sites/{id}/runs
-```
+* DB state correctness
+* Dispatch failure handling
+* Idempotent behavior
 
-Get run:
+---
 
-```
-GET /api/runs/{run_id}
-```
+# 📡 API Endpoints
 
-Get report:
-
-```
-GET /api/runs/{run_id}/report
-```
-
-Retry failed steps:
+### Sites
 
 ```
-POST /api/runs/{run_id}/retry
+POST   /api/sites
+GET    /api/sites
+GET    /api/sites/{id}
+```
+
+### Runs
+
+```
+POST   /api/sites/{id}/runs
+GET    /api/runs/{id}
+GET    /api/runs/{id}/dashboard
+POST   /api/runs/{id}/retry
+```
+
+### System
+
+```
+GET    /api/health
+GET    /api/dashboard/overview
 ```
 
 ---
 
 # 🔁 Audit Lifecycle
 
-1. Create AuditRun
-2. Create RunSteps
-3. Fetch client page
-4. Extract keywords
-5. Capture SERP
-6. Fetch competitors
-7. Analyze + Recommend
-8. Finalize
+1. Create site
+2. Create audit run
+3. Initialize step rows
+4. Outbox event created
+5. Dispatcher sends run_start
+6. Step chain executes in order
+7. Evidence captured per step
+8. Derived metrics computed
+9. Optional AI interpretation
+10. Finalize
 
-All transitions recorded in DB.
-
----
-
-# 🧠 Future Roadmap
-
-* SERP fan-out per keyword (parallel scaling)
-* AI interpretation layer
-* Ranking delta tracking
-* Local SEO scoring
-* Backlink analysis
-* OpenTelemetry tracing
-* Prometheus metrics
+Each transition is recorded.
 
 ---
 
-# 📌 Design Principles
+# 📐 Design Principles
 
-* No hidden state
+* DB is truth
+* Deterministic before AI
 * No silent failures
-* DB > Worker memory
-* Deterministic scoring before AI
+* Retryable units
+* Idempotent steps
+* Observable execution
+* Explicit state transitions
 * Evidence-linked recommendations
 
 ---
 
-# 🏁 Status
+# 📈 Scaling Characteristics
 
-POC architecture defined.
-Models implemented.
-Task orchestration in progress.
+The architecture supports:
+
+* SERP fan-out parallelism
+* Multi-tenant audits
+* Queue isolation
+* Horizontal worker scaling
+* Automatic recovery via reconciler
+* Dead-letter queue inspection
+* AI workload isolation
 
 ---
 
-Built for learning.
+# 🏁 System Status
+
+Production-grade orchestration complete.
+
+* Step-driven execution ✔
+* Outbox pattern implemented ✔
+* Reconciler supervisor active ✔
+* Derived status logic ✔
+* AI analysis integration ✔
+* Dashboard monitoring ✔
+* Test suite passing ✔
+
+---
+
+Built for reliability.
+Built for determinism.
 Built for scale.
-Built for visibility.
