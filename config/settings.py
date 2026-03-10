@@ -48,10 +48,7 @@ AUTHENTICATION_BACKENDS = [
     "django.contrib.auth.backends.ModelBackend",
 ]
 ROOT_URLCONF = "config.urls"
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+CORS_ALLOWED_ORIGINS = os.getenv("CORS_ALLOWED_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
 
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 BRAVE_API_KEY = os.getenv("BRAVE_API_KEY")
@@ -160,7 +157,7 @@ CELERY_TASK_SOFT_TIME_LIMIT = 150
 
 CELERY_TASK_ROUTES = {
     "apps.seo.tasks.run.run_start": {"queue": "seo_light"},
-    "apps.seo.tasks.run.finalize_run": {"queue": "seo_light"},
+    # ↑ remove the wrong finalize_run line that was here
 
     "apps.seo.tasks.steps.fetch_client_page": {"queue": "seo_light"},
     "apps.seo.tasks.steps.classify_site": {"queue": "seo_light"},
@@ -169,6 +166,8 @@ CELERY_TASK_ROUTES = {
     "apps.seo.tasks.steps.serp_capture_batch": {"queue": "seo_serp"},
     "apps.seo.tasks.steps.fetch_competitors": {"queue": "seo_heavy"},
     "apps.seo.tasks.steps.analyze_and_recommend": {"queue": "seo_heavy"},
+    "apps.seo.tasks.steps.finalize_run": {"queue": "seo_heavy"},  # ← ADD THIS
+
     "apps.seo.tasks.outbox.dispatch": {"queue": "control"},
 }
 
@@ -189,6 +188,18 @@ CELERY_BEAT_SCHEDULE = {
         "task": "apps.seo.tasks.reconciler.reconcile_runs",
         "schedule": 15.0,  # NEW: every 15 seconds (tune later)
     },
+    "outbox-cleanup": {          # ← ADD THIS
+        "task": "apps.seo.tasks.reconciler.cleanup_outbox",
+        "schedule": 3600.0,      # every hour
+    },
 }
+SERP_PROVIDER=os.getenv("SERP_PROVIDER", "duckduckgo")
+# LLM Providers
+OPENAI_API_KEY       = os.getenv("OPENAI_API_KEY", "")
+ANTHROPIC_API_KEY    = os.getenv("ANTHROPIC_API_KEY", "")
+GROK_API_KEY         = os.getenv("GROK_API_KEY", "")
+OPENROUTER_API_KEY   = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_SITE_URL  = os.getenv("OPENROUTER_SITE_URL", "")
+OPENROUTER_SITE_NAME = os.getenv("OPENROUTER_SITE_NAME", "SEO Audit Engine")
 
 TESTING = "test" in sys.argv

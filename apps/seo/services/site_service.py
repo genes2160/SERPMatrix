@@ -9,17 +9,22 @@ def normalize_url(url: str) -> str:
     return f"{scheme}://{netloc}".rstrip("/")
 
 
-def create_site(*, url: str, geo: str, language: str, device: str) -> ClientSite:
+def create_site(*, url: str, geo: str, language: str, device: str, user) -> ClientSite:
     normalized = normalize_url(url)
 
-    site, _ = ClientSite.objects.get_or_create(
+    site, created = ClientSite.objects.get_or_create(
         normalized_url=normalized,
+        user=user,  # scope per user
         defaults={
             "url": url,
             "geo": geo,
             "language": language,
             "device": device,
+            "user": user,
         },
     )
+    if created:
+        from apps.seo.services.run_service import run_service
+        run_service.create_run(site=site, config={})
 
     return site
