@@ -52,7 +52,8 @@ class SeoApiTests(APITestCase):
     def test_list_sites(self):
         ClientSite.objects.create(
             url="https://a.com",
-            normalized_url="https://a.com"
+            normalized_url="https://a.com",
+            user=self.user  # ← add this
         )
 
         response = self.client.get("/api/sites")
@@ -62,13 +63,13 @@ class SeoApiTests(APITestCase):
     def test_get_site(self):
         site = ClientSite.objects.create(
             url="https://b.com",
-            normalized_url="https://b.com"
+            normalized_url="https://b.com",
+            user=self.user  # ← add this
         )
 
         response = self.client.get(f"/api/sites/{site.id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(str(response.data["id"]), str(site.id))
-
     # ---------------------------------
     # RUN
     # ---------------------------------
@@ -76,7 +77,8 @@ class SeoApiTests(APITestCase):
     def test_create_run(self):
         site = ClientSite.objects.create(
             url="https://c.com",
-            normalized_url="https://c.com"
+            normalized_url="https://c.com",
+            user=self.user  # ← add
         )
 
         response = self.client.post(
@@ -91,7 +93,8 @@ class SeoApiTests(APITestCase):
     def test_get_run(self):
         site = ClientSite.objects.create(
             url="https://d.com",
-            normalized_url="https://d.com"
+            normalized_url="https://d.com",
+            user=self.user  # ← add
         )
 
         run = AuditRun.objects.create(client_site=site)
@@ -103,7 +106,8 @@ class SeoApiTests(APITestCase):
     def test_retry_run(self):
         site = ClientSite.objects.create(
             url="https://e.com",
-            normalized_url="https://e.com"
+            normalized_url="https://e.com",
+            user=self.user  # ← add
         )
 
         run = AuditRun.objects.create(client_site=site)
