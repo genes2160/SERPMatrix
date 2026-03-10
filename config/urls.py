@@ -1,5 +1,6 @@
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
+from django.http import JsonResponse
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
@@ -30,4 +31,9 @@ urlpatterns = [
 
     # App endpoints
     path("api/", include("apps.seo.urls")),
+
+    # catch-all — must be last
+    re_path(r"^.*$", lambda request, *args, **kwargs: JsonResponse(
+        {"detail": "The requested endpoint does not exist."}, status=404
+    )),
 ]

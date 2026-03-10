@@ -29,6 +29,7 @@ from apps.seo.serializers import (
 from apps.seo.services.site_service import create_site
 from apps.seo.services.run_service import run_service
 from django.utils import timezone
+from apps.seo.models import Notification
 
 class HealthCheckView(GenericAPIView):
     permission_classes = [AllowAny]
@@ -79,18 +80,13 @@ class ClientSiteListCreateView(GenericAPIView):
     def post(self, request):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-
-        site = create_site(**serializer.validated_data)
-
-        return Response(
-            SiteResponseSerializer(site).data,
-            status=status.HTTP_201_CREATED,
-        )
+        site = create_site(**serializer.validated_data, user=request.user)
+        return Response(SiteResponseSerializer(site).data, status=status.HTTP_201_CREATED)
 
     @extend_schema(responses=SiteResponseSerializer(many=True))
     def get(self, request):
         from django.db.models import Count
-        sites = self.get_queryset().annotate(run_count=Count("runs"))
+        sites = ClientSite.objects.filter(user=request.user).annotate(run_count=Count("runs")).order_by("-created_at")
         return Response(SiteResponseSerializer(sites, many=True).data)
     
 class SiteRunsListView(ListAPIView):
@@ -98,15 +94,20 @@ class SiteRunsListView(ListAPIView):
 
     def get_queryset(self):
         return AuditRun.objects.filter(
-            client_site_id=self.kwargs["site_id"]
+            client_site_id=self.kwargs["site_id"],
+            client_site__user=request.user,  # scope to owner
         ).order_by("-created_at")
 
+
 class ClientSiteDetailView(RetrieveAPIView):
-    queryset = ClientSite.objects.all()
     serializer_class = SiteResponseSerializer
     lookup_field = "id"
     lookup_url_kwarg = "site_id"
-    
+
+    def get_queryset(self):
+        return ClientSite.objects.filter(user=self.request.user)
+
+  
 class AuditRunCreateView(GenericAPIView):
     serializer_class = CreateRunSerializer
 
@@ -141,15 +142,22 @@ class RetryRunView(GenericAPIView):
     @extend_schema(responses=RunResponseSerializer)
     def post(self, request, run_id):
         run = get_object_or_404(AuditRun, id=run_id)
-        run = run_service.retry_run(run=run)
-
+        force = request.data.get("force", False)
+        if force:
+            run = run_service.force_retry_run(run=run)
+        else:
+            run = run_service.retry_run(run=run)
         return Response(RunResponseSerializer(run).data)
 
 
  
 class AuditRunDashboardView(APIView):
     def get(self, request, run_id):
-        run = get_object_or_404(AuditRun, id=run_id)
+        run = get_object_or_404(
+            AuditRun.objects.select_related("client_site"),
+            id=run_id,
+            client_site__user=request.user,  # prevent cross-user access
+        )
 
         steps_qs = run.steps.order_by("created_at")
         steps = list(steps_qs.values())  # keep your current response shape
@@ -175,16 +183,59 @@ class AuditRunDashboardView(APIView):
         run_data["status"] = derived_status
         run_data["finished_at"] = derived_finished_at
 
+        import json as _json
+
+        # parse ai_summary safely — old runs stored raw JSON, new runs store plain text
+        ai_summary = run.ai_summary or ""
+        if ai_summary.strip().startswith("[") or ai_summary.strip().startswith("{"):
+            try:
+                parsed = _json.loads(ai_summary)
+                if isinstance(parsed, list):
+                    # old format — render as recommendations directly
+                    recommendations = [
+                        {
+                            "id": None,
+                            "keyword": r.get("keyword"),
+                            "action_type": r.get("action_type"),
+                            "priority": r.get("priority"),
+                            "reason_text": r.get("reason_text"),
+                            "expected_impact": r.get("expected_impact"),
+                        }
+                        for r in parsed if isinstance(r, dict)
+                    ]
+                    # old format — extract as pre-formatted text, real recs come from DB
+                    ai_summary = f"Legacy format: {len(parsed)} recommendations stored as raw JSON. Trigger a new run to get a proper summary."
+                    high   = [r for r in parsed if r.get("priority") == "high"]
+                    med    = [r for r in parsed if r.get("priority") == "med"]
+                    topics = list({r.get("action_type") for r in parsed if r.get("action_type")})
+                    ai_summary = (
+                        f"Analysis found {len(parsed)} recommendations: "
+                        f"{len(high)} high priority, {len(med)} medium priority. "
+                        f"Key focus areas: {', '.join(topics)}."
+                        f"\nHowever this is a Legacy format: {len(parsed)} recommendations stored as raw JSON. Kindly trigger a new run to get a proper summary."
+                    )
+                elif isinstance(parsed, dict):
+                    ai_summary = parsed.get("summary", ai_summary)
+                    recommendations = parsed.get("recommendations", recommendations)
+            except Exception:
+                pass  # leave as-is
+
         return Response({
             "run": run_data,
             "steps": steps,
             "ai": {
-                "summary": run.ai_summary,
-                "recommendations": run.ai_meta or [],
-            },
-            "system": {
-                "summary": run.summary,
+                "summary": ai_summary,
                 "recommendations": recommendations,
+                "meta": run.ai_meta or {},
+            },
+            "system": run.summary or {},
+            "site": {
+                "url": run.client_site.url,
+                "normalized_url": run.client_site.normalized_url,
+                "geo": run.client_site.geo,
+                "language": run.client_site.language,
+                "device": run.client_site.device,
+                "niche_label": run.client_site.niche_label,
             },
         })
 
@@ -196,7 +247,11 @@ class DashboardOverviewView(APIView):
 
         total_sites = ClientSite.objects.count()
 
-        runs = AuditRun.objects.prefetch_related("steps").all()
+        runs =  AuditRun.objects.filter(
+            client_site__user=request.user
+        ).prefetch_related("steps").all()
+
+        # runs = AuditRun.objects.prefetch_related("steps").all()
 
         total_runs = runs.count()
 
@@ -230,3 +285,33 @@ class DashboardOverviewView(APIView):
             "queued_runs": queued_runs,  # NEW
             "avg_visibility_score": avg_visibility,
         })
+        
+
+class NotificationListView(APIView):
+    def get(self, request, run_id):
+        run = get_object_or_404(AuditRun, id=run_id)
+        notifications = run.notifications.all().values(
+            "id", "event_type", "title", "body", "meta", "read", "created_at"
+        )
+        return Response(list(notifications))
+
+class UserNotificationsView(APIView):
+    def get(self, request):
+        notifications = Notification.objects.filter(
+            user=request.user
+        ).order_by("-created_at").values(
+            "id", "event_type", "title", "body", "meta", "read", "created_at", "audit_run_id"
+        )
+        return Response(list(notifications))
+
+class NotificationMarkReadView(APIView):
+    def patch(self, request, notification_id):
+        from django.shortcuts import get_object_or_404
+        notification = get_object_or_404(
+            Notification,
+            id=notification_id,
+        )
+        notification.read = True
+        notification.save(update_fields=["read"])
+        return Response({"id": notification_id, "read": True})
+    

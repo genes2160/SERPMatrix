@@ -61,9 +61,11 @@ const API = {
         return this.authFetch(`/runs/${runId}/dashboard`);
     },
 
-    async retryRun(runId) {
-        return this.authFetch(`/runs/${runId}/retry`, { method: "POST" });
-    },
+    retryRun: (runId, force = false) =>
+        API.authFetch(`/runs/${runId}/retry`, {
+            method: "POST",
+            body: JSON.stringify({ force }),
+        }),
 
     async getHealth() {
         const res = await fetch(`${API_BASE}/health/`);
@@ -126,5 +128,17 @@ const API = {
                 throw new Error("Backend completely unreachable");
             }
         }
+    },// add inside the API object, alongside getSites, createRun etc:
+
+    async getNotifications(runId) {
+        return this.authFetch(`/runs/${runId}/notifications`);
+    },
+    async getAllNotifications() {
+        return this.authFetch("/notifications")
+    },
+    async markNotificationRead(notificationId) {
+        return this.authFetch(`/notifications/${notificationId}/read`, {
+            method: "PATCH",
+        });
     },
 };

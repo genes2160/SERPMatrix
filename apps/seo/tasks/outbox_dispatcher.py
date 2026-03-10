@@ -37,7 +37,11 @@ def dispatch_outbox_batch(limit: int = 20):
             event.status = OutboxEvent.Status.PROCESSING
             event.save(update_fields=["status"])
 
-    # LOCKS RELEASED
+    if not events:
+        logger.info("💤 No events to dispatch")
+        return {"dispatched": 0, "sent": 0, "failed": 0, "dlq": 0}
+
+    sent, failed, dlq = 0, 0, 0
 
     for event in events:
         try:
@@ -51,21 +55,25 @@ def dispatch_outbox_batch(limit: int = 20):
 
             event.status = OutboxEvent.Status.SENT
             event.save(update_fields=["status"])
-
+            sent += 1
             logger.info(f"✅ Event {event.id} SENT")
 
         except Exception as e:
-            logger.info(f"❌ Failed event {event.id}")
+            logger.info(f"❌ Failed event {event.id}: {e}")
 
             event.attempts += 1
             event.last_error = str(e)
 
             if event.attempts >= event.max_attempts:
                 event.status = OutboxEvent.Status.DLQ
+                dlq += 1
             else:
                 event.status = OutboxEvent.Status.FAILED
                 event.next_retry_at = timezone.now() + timezone.timedelta(minutes=5)
+                failed += 1
 
-            event.save(
-                update_fields=["status", "attempts", "last_error", "next_retry_at"]
-            )
+            event.save(update_fields=["status", "attempts", "last_error", "next_retry_at"])
+
+    result = {"dispatched": len(events), "sent": sent, "failed": failed, "dlq": dlq}
+    logger.info(f"📊 Outbox dispatch complete: {result}")
+    return result

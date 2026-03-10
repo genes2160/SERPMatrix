@@ -113,6 +113,16 @@ services:
       - .:/app
     depends_on:
       - redis
-
+  frontend:
+      image: python:3.11-slim
+      container_name: ${PROJECT_NAME}_frontend
+      working_dir: /app/dashboard
+      volumes:
+        - .:/app
+      ports:
+        - "3355:3355"
+      command: python -m http.server ${FRONTEND_PORT}
+      depends_on:
+        - web
 volumes:
   postgres_data:

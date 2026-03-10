@@ -5,6 +5,7 @@
     <meta charset="UTF-8">
     <title>SEO Admin</title>
     <link rel="stylesheet" href="css/app.css">
+    <link rel="stylesheet" href="css/notifications.css">
     <link rel="icon" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@latest/favicon-32x32.png">
 </head>
 
@@ -24,9 +25,25 @@
         <div class="main">
             <header class="topbar">
                 <div id="pageTitle"></div>
-                <button class="primary-btn" id="logoutBtn">Logout</button>
+                <div class="topbar-right">
+                    <div class="notif-wrapper" id="notifWrapper">
+                        <button class="notif-btn" id="notifBtn">
+                            🔔
+                            <span class="notif-badge hidden" id="notifBadge">0</span>
+                        </button>
+                        <div class="notif-dropdown hidden" id="notifDropdown">
+                            <div class="notif-header">
+                                <span>Notifications</span>
+                                <button class="notif-mark-all" id="markAllRead">Mark all read</button>
+                            </div>
+                            <div class="notif-list" id="notifList">
+                                <div class="notif-empty">No notifications yet</div>
+                            </div>
+                        </div>
+                    </div>
+                    <button class="primary-btn" id="logoutBtn">Logout</button>
+                </div>
             </header>
-
             <section id="metricsBar"></section>
 
             <section id="content"></section>
@@ -37,11 +54,14 @@
     <div id="modalContainer"></div>
     <div id="toastContainer"></div>
 
+    <script src="js/state.js"></script>
     <script src="js/api.js"></script>
     <script src="js/toast.js"></script>
     <script src="js/router.js"></script>
     <script src="js/ui.js"></script>
     <script src="js/app.js"></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/run.js"></script>
 
 </body>
 

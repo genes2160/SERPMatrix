@@ -1,0 +1,1743 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SEO Audit Engine</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap"
+        rel="stylesheet" />
+    <style>
+        :root {
+            --bg: #080c10;
+            --surface: #0d1219;
+            --surface2: #121921;
+            --border: rgba(255, 255, 255, 0.07);
+            --border2: rgba(255, 255, 255, 0.12);
+            --text: #e8edf2;
+            --muted: #5a6a7a;
+            --accent: #00e5c0;
+            --accent2: #6c63ff;
+            --warn: #f59e0b;
+            --danger: #ef4444;
+            --success: #10b981;
+            --running: #3b82f6;
+            --queued: #6b7280;
+            --glow: rgba(0, 229, 192, 0.15);
+        }
+
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        html {
+            font-size: 14px;
+            scroll-behavior: smooth
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Grid noise texture */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            background-image:
+                linear-gradient(rgba(0, 229, 192, 0.015) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 229, 192, 0.015) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── Layout ── */
+        .app {
+            display: flex;
+            min-height: 100vh;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 220px;
+            flex-shrink: 0;
+            background: var(--surface);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 24px 0;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+        }
+
+        .logo {
+            padding: 0 20px 24px;
+            font-family: 'Syne', sans-serif;
+            font-size: 16px;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 16px;
+        }
+
+        .logo-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent);
+            box-shadow: 0 0 8px var(--accent);
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--muted);
+            transition: all 0.15s;
+            border-left: 2px solid transparent;
+        }
+
+        .nav-item:hover {
+            color: var(--text);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .nav-item.active {
+            color: var(--accent);
+            border-left-color: var(--accent);
+            background: rgba(0, 229, 192, 0.05);
+        }
+
+        .nav-icon {
+            font-size: 15px;
+            width: 18px;
+            text-align: center;
+        }
+
+        /* ── Main ── */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .topbar {
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--surface);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .topbar-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .topbar-right {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .content {
+            padding: 24px 28px;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: none;
+            cursor: pointer;
+            font-family: 'DM Sans', sans-serif;
+            font-size: 12px;
+            font-weight: 500;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: #000;
+        }
+
+        .btn-primary:hover {
+            background: #00ffda;
+            box-shadow: 0 0 16px rgba(0, 229, 192, 0.4);
+        }
+
+        .btn-secondary {
+            background: var(--surface2);
+            color: var(--text);
+            border: 1px solid var(--border2);
+        }
+
+        .btn-secondary:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 11px;
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            color: var(--danger);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .card-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            margin-bottom: 14px;
+        }
+
+        /* ── Metric Cards ── */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 18px 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .metric-card::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+        }
+
+        .metric-card.green::after {
+            background: linear-gradient(90deg, var(--success), transparent);
+        }
+
+        .metric-card.blue::after {
+            background: linear-gradient(90deg, var(--running), transparent);
+        }
+
+        .metric-card.amber::after {
+            background: linear-gradient(90deg, var(--warn), transparent);
+        }
+
+        .metric-card.purple::after {
+            background: linear-gradient(90deg, var(--accent2), transparent);
+        }
+
+        .metric-label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            margin-bottom: 6px;
+        }
+
+        .metric-value {
+            font-family: 'Syne', sans-serif;
+            font-size: 28px;
+            font-weight: 800;
+            line-height: 1;
+        }
+
+        .metric-sub {
+            font-size: 11px;
+            color: var(--muted);
+            margin-top: 4px;
+        }
+
+        .metric-card.green .metric-value {
+            color: var(--success);
+        }
+
+        .metric-card.blue .metric-value {
+            color: var(--running);
+        }
+
+        .metric-card.amber .metric-value {
+            color: var(--warn);
+        }
+
+        .metric-card.purple .metric-value {
+            color: var(--accent2);
+        }
+
+        /* ── Pipeline ── */
+        .pipeline-wrap {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .pipeline-steps {
+            display: flex;
+            gap: 0;
+            align-items: center;
+            overflow-x: auto;
+            padding: 10px 0;
+        }
+
+        .pipeline-step {
+            flex: 1;
+            min-width: 100px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .pipeline-step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 22px;
+            left: calc(50% + 22px);
+            right: calc(-50% + 22px);
+            height: 2px;
+            background: var(--border2);
+            transition: background 0.3s;
+        }
+
+        .pipeline-step.success:not(:last-child)::after {
+            background: var(--success);
+        }
+
+        .pipeline-step.running:not(:last-child)::after {
+            background: var(--running);
+            opacity: 0.4;
+        }
+
+        .step-circle {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            border: 2px solid var(--border2);
+            background: var(--surface2);
+            transition: all 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .pipeline-step.success .step-circle {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.2);
+        }
+
+        .pipeline-step.running .step-circle {
+            border-color: var(--running);
+            background: rgba(59, 130, 246, 0.1);
+            color: var(--running);
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.3);
+            animation: pulse-ring 1.5s infinite;
+        }
+
+        .pipeline-step.failed .step-circle {
+            border-color: var(--danger);
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .pipeline-step.queued .step-circle {
+            border-color: var(--border2);
+            color: var(--muted);
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+            }
+        }
+
+        .step-label {
+            font-size: 10px;
+            margin-top: 8px;
+            color: var(--muted);
+            text-align: center;
+            font-weight: 500;
+            letter-spacing: 0.04em;
+        }
+
+        .pipeline-step.success .step-label {
+            color: var(--success);
+        }
+
+        .pipeline-step.running .step-label {
+            color: var(--running);
+        }
+
+        .pipeline-step.failed .step-label {
+            color: var(--danger);
+        }
+
+        .step-dur {
+            font-family: 'DM Mono', monospace;
+            font-size: 9px;
+            color: var(--muted);
+            margin-top: 2px;
+        }
+
+        /* ── Progress bar ── */
+        .progress-track {
+            background: var(--surface2);
+            border-radius: 99px;
+            height: 6px;
+            overflow: hidden;
+            margin-top: 16px;
+        }
+
+        .progress-fill {
+            height: 100%;
+            border-radius: 99px;
+            background: linear-gradient(90deg, var(--accent), var(--accent2));
+            transition: width 0.5s ease;
+        }
+
+        /* ── Two col ── */
+        .two-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        .three-col {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 20px;
+        }
+
+        /* ── Bar chart ── */
+        .bar-chart {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .bar-row {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .bar-label-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+        }
+
+        .bar-name {
+            font-size: 11px;
+            color: var(--text);
+        }
+
+        .bar-val {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        .bar-track {
+            height: 8px;
+            background: var(--surface2);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+
+        .bar-fill {
+            height: 100%;
+            border-radius: 99px;
+            transition: width 0.6s ease;
+        }
+
+        /* ── Status badge ── */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge::before {
+            content: '';
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        .badge-success {
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--success);
+        }
+
+        .badge-running {
+            background: rgba(59, 130, 246, 0.12);
+            color: var(--running);
+        }
+
+        .badge-failed {
+            background: rgba(239, 68, 68, 0.12);
+            color: var(--danger);
+        }
+
+        .badge-queued {
+            background: rgba(107, 114, 128, 0.12);
+            color: var(--queued);
+        }
+
+        /* ── Sites table ── */
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .data-table th {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--muted);
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .data-table td {
+            padding: 12px 12px;
+            font-size: 12px;
+            border-bottom: 1px solid var(--border);
+            vertical-align: middle;
+        }
+
+        .data-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .data-table tbody tr {
+            transition: background 0.1s;
+            cursor: pointer;
+        }
+
+        .data-table tbody tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .mono {
+            font-family: 'DM Mono', monospace;
+            font-size: 11px;
+            color: var(--muted);
+        }
+
+        /* ── Donut chart (CSS) ── */
+        .donut-wrap {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .donut {
+            position: relative;
+            width: 90px;
+            height: 90px;
+        }
+
+        .donut svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .donut-label {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .donut-pct {
+            font-family: 'Syne', sans-serif;
+            font-size: 18px;
+            font-weight: 800;
+        }
+
+        .donut-sub {
+            font-size: 9px;
+            color: var(--muted);
+            text-transform: uppercase;
+        }
+
+        .donut-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        /* ── Sparkline ── */
+        .spark {
+            height: 40px;
+        }
+
+        /* ── Timeline dots ── */
+        .activity-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+        }
+
+        .activity-item {
+            display: flex;
+            gap: 12px;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+
+        .activity-item:last-child {
+            border-bottom: none;
+        }
+
+        .activity-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-top: 4px;
+            flex-shrink: 0;
+        }
+
+        .activity-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .activity-title {
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .activity-meta {
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 2px;
+            font-family: 'DM Mono', monospace;
+        }
+
+        /* ── Run detail ── */
+        .run-hero {
+            background: linear-gradient(135deg, rgba(0, 229, 192, 0.05) 0%, rgba(108, 99, 255, 0.05) 100%);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 24px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .run-hero::before {
+            content: '';
+            position: absolute;
+            top: -40px;
+            right: -40px;
+            width: 160px;
+            height: 160px;
+            border-radius: 50%;
+            background: radial-gradient(circle, rgba(0, 229, 192, 0.08), transparent 70%);
+        }
+
+        .run-hero-top {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .run-hero-url {
+            font-family: 'Syne', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+        }
+
+        .run-hero-id {
+            font-family: 'DM Mono', monospace;
+            font-size: 10px;
+            color: var(--muted);
+            margin-top: 3px;
+        }
+
+        .run-stats {
+            display: flex;
+            gap: 24px;
+        }
+
+        .run-stat label {
+            font-size: 10px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            display: block;
+            margin-bottom: 3px;
+        }
+
+        .run-stat span {
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+        }
+
+        /* ── Recs ── */
+        .rec-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .rec-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 3px solid transparent;
+            transition: border-color 0.15s;
+        }
+
+        .rec-item.high {
+            border-left-color: var(--danger);
+        }
+
+        .rec-item.med {
+            border-left-color: var(--warn);
+        }
+
+        .rec-item.low {
+            border-left-color: var(--muted);
+        }
+
+        .rec-icon {
+            font-size: 18px;
+            flex-shrink: 0;
+            width: 28px;
+            text-align: center;
+        }
+
+        .rec-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .rec-title {
+            font-size: 12px;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .rec-text {
+            font-size: 11px;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .rec-tags {
+            display: flex;
+            gap: 5px;
+            margin-top: 6px;
+            flex-wrap: wrap;
+        }
+
+        .tag {
+            padding: 2px 7px;
+            border-radius: 4px;
+            font-size: 9px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .tag-high {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .tag-med {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warn);
+        }
+
+        .tag-kw {
+            background: rgba(108, 99, 255, 0.1);
+            color: var(--accent2);
+        }
+
+        .tag-type {
+            background: rgba(0, 229, 192, 0.1);
+            color: var(--accent);
+        }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.open {
+            display: flex;
+        }
+
+        .modal-box {
+            background: var(--surface);
+            border: 1px solid var(--border2);
+            border-radius: 12px;
+            width: 700px;
+            max-width: 95vw;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 28px;
+            animation: modal-in 0.2s ease;
+        }
+
+        @keyframes modal-in {
+            from {
+                opacity: 0;
+                transform: translateY(12px);
+            }
+        }
+
+        .modal-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-family: 'Syne', sans-serif;
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 200;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .toast-item {
+            background: var(--surface2);
+            border: 1px solid var(--border2);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            animation: toast-in 0.2s ease;
+            max-width: 300px;
+        }
+
+        @keyframes toast-in {
+            from {
+                opacity: 0;
+                transform: translateX(16px);
+            }
+        }
+
+        .toast-item.success {
+            border-left: 3px solid var(--success);
+        }
+
+        .toast-item.error {
+            border-left: 3px solid var(--danger);
+        }
+
+        /* ── Add site modal ── */
+        .form-group {
+            margin-bottom: 14px;
+        }
+
+        .form-label {
+            font-size: 11px;
+            color: var(--muted);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .form-input {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border2);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-family: 'DM Mono', monospace;
+            font-size: 12px;
+            outline: none;
+            transition: border-color 0.15s;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+        }
+
+        .form-select {
+            width: 100%;
+            background: var(--surface2);
+            border: 1px solid var(--border2);
+            border-radius: 6px;
+            padding: 10px 12px;
+            color: var(--text);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 12px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border2);
+            border-radius: 99px;
+        }
+
+        /* views */
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 48px;
+            color: var(--muted);
+        }
+
+        .empty-state .empty-icon {
+            font-size: 40px;
+            margin-bottom: 12px;
+        }
+
+        .empty-state p {
+            font-size: 13px;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .divider {
+            height: 1px;
+            background: var(--border);
+            margin: 16px 0;
+        }
+
+        /* chart canvas */
+        canvas.step-chart {
+            width: 100% !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="app">
+        <!-- Sidebar -->
+        <nav class="sidebar">
+            <div class="logo">
+                <div class="logo-dot"></div>SEO Engine
+            </div>
+            <div class="nav-item active" onclick="showView('overview')" id="nav-overview">
+                <span class="nav-icon">◈</span> Overview
+            </div>
+            <div class="nav-item" onclick="showView('sites')" id="nav-sites">
+                <span class="nav-icon">⊞</span> Sites
+            </div>
+            <div class="nav-item" onclick="showView('runs')" id="nav-runs">
+                <span class="nav-icon">⟳</span> Runs
+            </div>
+            <div class="nav-item" onclick="showView('health')" id="nav-health">
+                <span class="nav-icon">♥</span> Health
+            </div>
+        </nav>
+
+        <!-- Main -->
+        <div class="main">
+            <div class="topbar">
+                <div class="topbar-title" id="pageTitle">Overview</div>
+                <div class="topbar-right">
+                    <div id="globalStatus" style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">
+                        Loading…</div>
+                    <button class="btn btn-primary btn-sm" onclick="openAddSiteModal()">+ Add Site</button>
+                </div>
+            </div>
+
+            <div class="content" id="appContent">
+
+                <!-- ══ OVERVIEW VIEW ══ -->
+                <div class="view active" id="view-overview">
+                    <div class="metrics-row" id="overviewMetrics">
+                        <div class="metric-card green">
+                            <div class="metric-label">Total Sites</div>
+                            <div class="metric-value" id="m-sites">—</div>
+                            <div class="metric-sub">Tracked domains</div>
+                        </div>
+                        <div class="metric-card blue">
+                            <div class="metric-label">Total Runs</div>
+                            <div class="metric-value" id="m-runs">—</div>
+                            <div class="metric-sub">All time</div>
+                        </div>
+                        <div class="metric-card amber">
+                            <div class="metric-label">Running Now</div>
+                            <div class="metric-value" id="m-running">—</div>
+                            <div class="metric-sub">Active audits</div>
+                        </div>
+                        <div class="metric-card purple">
+                            <div class="metric-label">Success Rate</div>
+                            <div class="metric-value" id="m-rate">—</div>
+                            <div class="metric-sub">Completion %</div>
+                        </div>
+                    </div>
+
+                    <div class="two-col">
+                        <div class="card">
+                            <div class="card-title">Run Status Distribution</div>
+                            <div class="donut-wrap" id="donutWrap">
+                                <div class="donut" id="donutChart">
+                                    <svg viewBox="0 0 36 36">
+                                        <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--surface2)"
+                                            stroke-width="3" />
+                                    </svg>
+                                    <div class="donut-label">
+                                        <div class="donut-pct" id="donutPct">—</div>
+                                        <div class="donut-sub">success</div>
+                                    </div>
+                                </div>
+                                <div class="donut-legend" id="donutLegend"></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <div class="card-title">Recent Activity</div>
+                            <div class="activity-list" id="activityList">
+                                <div class="empty-state">
+                                    <p>Loading…</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-title">Sites at a Glance</div>
+                        <table class="data-table" id="overviewSitesTable">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>Geo</th>
+                                    <th>Device</th>
+                                    <th>Latest Run</th>
+                                    <th>Status</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="overviewSitesTbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ SITES VIEW ══ -->
+                <div class="view" id="view-sites">
+                    <div class="section-head">
+                        <div></div>
+                        <button class="btn btn-primary" onclick="openAddSiteModal()">+ Add Site</button>
+                    </div>
+                    <div class="card">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>URL</th>
+                                    <th>Geo</th>
+                                    <th>Lang</th>
+                                    <th>Device</th>
+                                    <th>Runs</th>
+                                    <th>Created</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="sitesTbody"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- ══ RUNS VIEW ══ -->
+                <div class="view" id="view-runs">
+                    <div id="runViewContent"></div>
+                </div>
+
+                <!-- ══ HEALTH VIEW ══ -->
+                <div class="view" id="view-health">
+                    <div class="two-col">
+                        <div class="card">
+                            <div class="card-title">Services</div>
+                            <div id="healthContent">
+                                <div class="empty-state">
+                                    <p>Checking…</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-title">Workers</div>
+                            <div id="workersContent">
+                                <div class="empty-state">
+                                    <p>N/A</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div><!-- /content -->
+        </div><!-- /main -->
+    </div><!-- /app -->
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modalOverlay" onclick="closeModalOnBackdrop(event)">
+        <div class="modal-box" id="modalBox"></div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast"></div>
+
+    <script>
+        // ─── Config ───────────────────────────────────────────────────────────────
+        const API_BASE = 'http://localhost:8000/api';
+        let AUTH_TOKEN = localStorage.getItem('seo_token') || '';
+
+        // ─── Auth fetch ───────────────────────────────────────────────────────────
+        async function apiFetch(path, opts = {}) {
+            const res = await fetch(API_BASE + path, {
+                ...opts,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${AUTH_TOKEN}`,
+                    ...(opts.headers || {}),
+                },
+            });
+            if (!res.ok) {
+                const err = await res.text();
+                throw new Error(err || `HTTP ${res.status}`);
+            }
+            return res.json();
+        }
+
+        // ─── State ────────────────────────────────────────────────────────────────
+        let _sites = [];
+        let _pollTimer = null;
+        let _currentRunId = null;
+
+        // ─── View routing ─────────────────────────────────────────────────────────
+        function showView(name) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('view-' + name)?.classList.add('active');
+            document.getElementById('nav-' + name)?.classList.add('active');
+            const titles = { overview: 'Overview', sites: 'Sites', runs: 'Run Monitor', health: 'Health' };
+            document.getElementById('pageTitle').textContent = titles[name] || name;
+            stopPoll();
+            if (name === 'overview') loadOverview();
+            if (name === 'sites') loadSites();
+            if (name === 'health') loadHealth();
+        }
+
+        // ─── Overview ─────────────────────────────────────────────────────────────
+        async function loadOverview() {
+            try {
+                _sites = await apiFetch('/sites');
+                const allRuns = _sites.flatMap(s => s.runs || []);
+                const counts = { success: 0, running: 0, failed: 0, queued: 0 };
+                allRuns.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+                const total = allRuns.length || 1;
+
+                document.getElementById('m-sites').textContent = _sites.length;
+                document.getElementById('m-runs').textContent = allRuns.length;
+                document.getElementById('m-running').textContent = counts.running || 0;
+                document.getElementById('m-rate').textContent = Math.round((counts.success / total) * 100) + '%';
+                document.getElementById('globalStatus').textContent = `${counts.running} running`;
+
+                // Donut
+                renderDonut(counts, total);
+
+                // Activity
+                const recent = [...allRuns]
+                    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                    .slice(0, 6);
+                const icons = { success: '✓', running: '↻', failed: '✕', queued: '○' };
+                const colors = { success: 'var(--success)', running: 'var(--running)', failed: 'var(--danger)', queued: 'var(--muted)' };
+                document.getElementById('activityList').innerHTML = recent.map(r => {
+                    const site = _sites.find(s => (s.runs || []).find(x => x.id === r.id));
+                    return `<div class="activity-item">
+        <div class="activity-dot" style="background:${colors[r.status] || 'var(--muted)'}"></div>
+        <div class="activity-content">
+          <div class="activity-title">${site?.url || 'Unknown'}</div>
+          <div class="activity-meta">${r.status.toUpperCase()} · ${fmtDate(r.created_at)}</div>
+        </div>
+        <div>${statusBadge(r.status)}</div>
+      </div>`;
+                }).join('') || '<div class="empty-state"><p>No runs yet</p></div>';
+
+                // Sites table
+                document.getElementById('overviewSitesTbody').innerHTML = _sites.map(s => {
+                    const latest = (s.runs || [])[0];
+                    return `<tr onclick="openRunDashboard('${latest?.id || ''}', '${s.url}')">
+        <td class="mono">${s.url}</td>
+        <td>${s.geo}</td>
+        <td>${s.device}</td>
+        <td class="mono">${fmtDate(latest?.created_at)}</td>
+        <td>${statusBadge(latest?.status || 'none')}</td>
+        <td><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();startRun('${s.id}')">Run Audit</button></td>
+      </tr>`;
+                }).join('');
+            } catch (e) {
+                toast('Failed to load overview: ' + e.message, 'error');
+            }
+        }
+
+        function renderDonut(counts, total) {
+            const colors = { success: '#10b981', running: '#3b82f6', failed: '#ef4444', queued: '#4b5563' };
+            const r = 15.9, circ = 2 * Math.PI * r;
+            let offset = 0;
+            let circles = '';
+            let legend = '';
+            for (const [k, v] of Object.entries(counts)) {
+                if (!v) continue;
+                const pct = v / total;
+                const dash = pct * circ;
+                circles += `<circle cx="18" cy="18" r="${r}" fill="none" stroke="${colors[k]}" stroke-width="3"
+      stroke-dasharray="${dash} ${circ}" stroke-dashoffset="${-offset}" opacity="0.9"/>`;
+                offset += dash;
+                legend += `<div class="legend-item"><div class="legend-dot" style="background:${colors[k]}"></div>${k}: ${v}</div>`;
+            }
+            const successPct = Math.round(((counts.success || 0) / total) * 100);
+            document.getElementById('donutChart').innerHTML = `
+    <svg viewBox="0 0 36 36"><circle cx="18" cy="18" r="${r}" fill="none" stroke="var(--surface2)" stroke-width="3"/>${circles}</svg>
+    <div class="donut-label"><div class="donut-pct" style="color:var(--success)">${successPct}%</div><div class="donut-sub">success</div></div>`;
+            document.getElementById('donutLegend').innerHTML = legend;
+        }
+
+        // ─── Sites ─────────────────────────────────────────────────────────────────
+        async function loadSites() {
+            try {
+                _sites = await apiFetch('/sites');
+                document.getElementById('sitesTbody').innerHTML = _sites.map(s => {
+                    const runs = s.runs || [];
+                    return `<tr onclick="openRunDashboard('${runs[0]?.id || ''}', '${s.url}')">
+        <td class="mono">${s.url}</td>
+        <td>${s.geo}</td>
+        <td>${s.language}</td>
+        <td>${s.device}</td>
+        <td>${runs.length}</td>
+        <td class="mono">${fmtDate(s.created_at)}</td>
+        <td style="display:flex;gap:6px;">
+          <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();startRun('${s.id}')">▶ Run</button>
+          ${runs[0] ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openRunDashboard('${runs[0].id}','${s.url}')">View</button>` : ''}
+        </td>
+      </tr>`;
+                }).join('') || '<tr><td colspan="7"><div class="empty-state"><div class="empty-icon">⊕</div><p>No sites yet. Add one!</p></div></td></tr>';
+            } catch (e) {
+                toast('Failed to load sites: ' + e.message, 'error');
+            }
+        }
+
+        async function startRun(siteId) {
+            try {
+                const run = await apiFetch(`/sites/${siteId}/runs`, { method: 'POST', body: JSON.stringify({}) });
+                toast('Audit started!', 'success');
+                openRunDashboard(run.id, '');
+            } catch (e) { toast('Failed to start run: ' + e.message, 'error'); }
+        }
+
+        // ─── Run Dashboard ─────────────────────────────────────────────────────────
+        function openRunDashboard(runId, siteUrl) {
+            if (!runId || runId === 'null') { toast('No run available', 'error'); return; }
+            showView('runs');
+            _currentRunId = runId;
+            document.getElementById('pageTitle').textContent = 'Run Monitor';
+            renderRunShell(runId, siteUrl);
+            loadRunDashboard(runId);
+            startPoll(runId);
+        }
+
+        function renderRunShell(runId, siteUrl) {
+            document.getElementById('runViewContent').innerHTML = `
+    <div class="run-hero">
+      <div class="run-hero-top">
+        <div>
+          <div class="run-hero-url">${siteUrl || 'Loading…'}</div>
+          <div class="run-hero-id">${runId}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <div id="runStatusBadge"></div>
+          <button class="btn btn-secondary btn-sm" onclick="showView('sites')">← Back</button>
+          <button class="btn btn-primary btn-sm" onclick="retryCurrentRun(this)">↺ Retry</button>
+        </div>
+      </div>
+      <div class="run-stats" id="runStats"></div>
+      <div class="progress-track" style="margin-top:16px;"><div class="progress-fill" id="runProgress" style="width:0%"></div></div>
+    </div>
+
+    <!-- Pipeline -->
+    <div class="pipeline-wrap" style="margin-bottom:20px;">
+      <div class="card-title">Pipeline</div>
+      <div class="pipeline-steps" id="pipelineSteps"></div>
+    </div>
+
+    <!-- Metrics row -->
+    <div class="metrics-row" id="runMetrics"></div>
+
+    <!-- Charts + Recs -->
+    <div class="two-col" style="margin-bottom:20px;">
+      <div class="card">
+        <div class="card-title">Step Duration (seconds)</div>
+        <div class="bar-chart" id="stepDurChart"></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Recommendations</div>
+        <div class="rec-list" id="recList"></div>
+      </div>
+    </div>
+
+    <!-- Steps table -->
+    <div class="card" style="margin-bottom:20px;">
+      <div class="card-title">Step Details</div>
+      <table class="data-table">
+        <thead><tr><th>Step</th><th>Status</th><th>Started</th><th>Finished</th><th>Duration</th><th>Attempts</th><th>Info</th></tr></thead>
+        <tbody id="stepsTableBody"></tbody>
+      </table>
+    </div>
+
+    <!-- AI Summary -->
+    <div class="card">
+      <div class="card-title">AI Analysis</div>
+      <div id="aiSummaryWrap"><div class="empty-state"><p>Waiting for analysis…</p></div></div>
+    </div>
+  `;
+        }
+
+        async function loadRunDashboard(runId) {
+            try {
+                const data = await apiFetch(`/runs/${runId}/dashboard`);
+                renderRunDashboard(data);
+            } catch (e) {
+                if (!_pollTimer) toast('Failed to load run: ' + e.message, 'error');
+            }
+        }
+
+        const STEP_ORDER = ['FETCH_CLIENT', 'CLASSIFY', 'KEYWORDS', 'SERP', 'COMPETITORS', 'ANALYZE', 'FINALIZE'];
+        const STEP_ICONS = { FETCH_CLIENT: '⬇', CLASSIFY: '⊕', KEYWORDS: '#', SERP: '🔍', COMPETITORS: '⊞', ANALYZE: '◈', FINALIZE: '✓' };
+
+        function renderRunDashboard(data) {
+            const run = data.run;
+            const steps = (data.steps || []).sort((a, b) => STEP_ORDER.indexOf(a.step_name) - STEP_ORDER.indexOf(b.step_name));
+            const ai = data.ai || {};
+            const recs = ai.recommendations || [];
+
+            // Hero stats
+            const dur = durStr(run.started_at, run.finished_at);
+            document.getElementById('runStatusBadge').innerHTML = statusBadge(run.status);
+            document.getElementById('runStats').innerHTML = `
+    <div class="run-stat"><label>Started</label><span>${fmtDate(run.started_at)}</span></div>
+    <div class="run-stat"><label>Finished</label><span>${run.finished_at ? fmtDate(run.finished_at) : '—'}</span></div>
+    <div class="run-stat"><label>Duration</label><span>${dur || '—'}</span></div>
+    <div class="run-stat"><label>Steps</label><span>${steps.length} / ${STEP_ORDER.length}</span></div>
+  `;
+
+            // Progress
+            const done = steps.filter(s => s.status === 'success' || s.status === 'skipped').length;
+            document.getElementById('runProgress').style.width = Math.round((done / STEP_ORDER.length) * 100) + '%';
+
+            // Pipeline
+            document.getElementById('pipelineSteps').innerHTML = STEP_ORDER.map(name => {
+                const s = steps.find(x => x.step_name === name);
+                const st = s?.status || 'queued';
+                const d = durStr(s?.started_at, s?.finished_at);
+                return `<div class="pipeline-step ${st}" onclick="openStepModal('${s?.id || ''}', ${JSON.stringify(s || {}).replace(/"/g, '&quot;')})">
+      <div class="step-circle">${STEP_ICONS[name] || '●'}</div>
+      <div class="step-label">${name.replace('_', ' ')}</div>
+      <div class="step-dur">${d || ''}</div>
+    </div>`;
+            }).join('');
+
+            // Metrics
+            const kwCount = steps.find(s => s.step_name === 'KEYWORDS')?.meta?.count || 0;
+            const recCount = steps.find(s => s.step_name === 'ANALYZE')?.meta?.recommendations || 0;
+            const words = steps.find(s => s.step_name === 'FETCH_CLIENT')?.meta?.word_count || 0;
+            const comp = steps.find(s => s.step_name === 'COMPETITORS')?.meta?.competitors_fetched || 0;
+            document.getElementById('runMetrics').innerHTML = `
+    <div class="metric-card green"><div class="metric-label">Keywords</div><div class="metric-value">${kwCount}</div><div class="metric-sub">Extracted</div></div>
+    <div class="metric-card purple"><div class="metric-label">Recommendations</div><div class="metric-value">${recCount}</div><div class="metric-sub">Generated</div></div>
+    <div class="metric-card blue"><div class="metric-label">Word Count</div><div class="metric-value">${words}</div><div class="metric-sub">Client page</div></div>
+    <div class="metric-card amber"><div class="metric-label">Competitors</div><div class="metric-value">${comp}</div><div class="metric-sub">Fetched</div></div>
+  `;
+
+            // Duration bar chart
+            const maxDur = Math.max(...steps.map(s => durationMs(s.started_at, s.finished_at) || 0), 1);
+            const barColors = { success: 'var(--success)', running: 'var(--running)', failed: 'var(--danger)', queued: 'var(--border2)' };
+            document.getElementById('stepDurChart').innerHTML = steps.filter(s => s.started_at).map(s => {
+                const ms = durationMs(s.started_at, s.finished_at) || 0;
+                const pct = Math.round((ms / maxDur) * 100);
+                const sec = ms < 1000 ? ms + 'ms' : (ms / 1000).toFixed(1) + 's';
+                return `<div class="bar-row">
+      <div class="bar-label-row"><span class="bar-name">${s.step_name}</span><span class="bar-val">${sec}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${barColors[s.status] || 'var(--accent)'}"></div></div>
+    </div>`;
+            }).join('') || '<div class="empty-state"><p>No step data yet</p></div>';
+
+            // Recommendations
+            const recIcons = { title_fix: '📝', h1_fix: '📌', content_expand: '📄', meta_description: '🏷', ranking_improvement: '📈', general: '💡' };
+            document.getElementById('recList').innerHTML = recs.length ? recs.map(r => `
+    <div class="rec-item ${r.priority || 'low'}">
+      <div class="rec-icon">${recIcons[r.action_type] || '💡'}</div>
+      <div class="rec-body">
+        <div class="rec-title">${r.action_type?.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</div>
+        <div class="rec-text">${r.reason_text || ''}</div>
+        <div class="rec-tags">
+          <span class="tag tag-${r.priority}">${r.priority || 'low'}</span>
+          <span class="tag tag-type">${r.action_type}</span>
+          ${r.keyword ? `<span class="tag tag-kw">${r.keyword}</span>` : ''}
+        </div>
+      </div>
+    </div>`).join('')
+                : `<div class="empty-state"><p>No recommendations yet</p></div>`;
+
+            // Steps table
+            document.getElementById('stepsTableBody').innerHTML = steps.map(s => {
+                const meta = s.meta || {};
+                const hint = Object.entries(meta).slice(0, 2).map(([k, v]) => `${k}: ${v}`).join(' · ') || '—';
+                return `<tr onclick="openStepModal('${s.id}', ${JSON.stringify(s).replace(/"/g, '&quot;')})">
+      <td class="mono">${s.step_name}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td class="mono" style="font-size:10px;">${fmtDate(s.started_at)}</td>
+      <td class="mono" style="font-size:10px;">${fmtDate(s.finished_at)}</td>
+      <td class="mono">${durStr(s.started_at, s.finished_at) || '—'}</td>
+      <td style="text-align:center;">${s.attempts ?? 0}</td>
+      <td style="font-size:10px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${hint}</td>
+    </tr>`;
+            }).join('');
+
+            // AI Summary
+            if (ai.summary) {
+                document.getElementById('aiSummaryWrap').innerHTML = `
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:12px;line-height:1.7;font-size:13px;">${ai.summary}</div>
+      ${ai.meta ? `<div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">
+        Provider: ${ai.meta.provider || '—'} | Model: ${ai.meta.model || '—'} | Tokens: ${ai.meta.usage?.total_tokens ?? '—'} | Cost: $${ai.meta.usage?.cost?.toFixed(5) ?? '—'}
+      </div>` : ''}`;
+            }
+
+            // Stop polling on terminal
+            if (['success', 'failed', 'canceled'].includes(run.status)) stopPoll();
+        }
+
+        function openStepModal(stepId, stepData) {
+            if (!stepId || stepId === 'undefined') return;
+            const s = typeof stepData === 'string' ? JSON.parse(stepData.replace(/&quot;/g, '"')) : stepData;
+            const meta = s.meta || {};
+            document.getElementById('modalBox').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">Step: <span style="color:var(--accent);font-family:'DM Mono',monospace;">${s.step_name || '—'}</span></div>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕ Close</button>
+    </div>
+    <div class="metrics-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:16px;">
+      <div class="metric-card ${s.status === 'success' ? 'green' : s.status === 'running' ? 'blue' : 'amber'}">
+        <div class="metric-label">Status</div><div class="metric-value" style="font-size:18px;">${statusBadge(s.status)}</div>
+      </div>
+      <div class="metric-card blue"><div class="metric-label">Duration</div><div class="metric-value" style="font-size:18px;">${durStr(s.started_at, s.finished_at) || '—'}</div></div>
+      <div class="metric-card amber"><div class="metric-label">Attempts</div><div class="metric-value" style="font-size:18px;">${s.attempts ?? 0}</div></div>
+    </div>
+    ${s.last_error ? `<div style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.2);border-radius:8px;padding:12px;margin-bottom:14px;font-size:12px;color:var(--danger);">${s.last_error}</div>` : ''}
+    <div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:8px;">Meta</div>
+    <pre style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px;font-size:11px;font-family:'DM Mono',monospace;overflow-x:auto;line-height:1.6;">${JSON.stringify(meta, null, 2)}</pre>
+  `;
+            document.getElementById('modalOverlay').classList.add('open');
+        }
+
+        async function retryCurrentRun(btn) {
+            if (!_currentRunId) return;
+            btn.disabled = true; btn.textContent = '…';
+            try {
+                await apiFetch(`/runs/${_currentRunId}/retry`, { method: 'POST', body: JSON.stringify({}) });
+                toast('Retry triggered', 'success');
+                loadRunDashboard(_currentRunId);
+                startPoll(_currentRunId);
+            } catch (e) { toast('Retry failed: ' + e.message, 'error'); }
+            finally { btn.disabled = false; btn.textContent = '↺ Retry'; }
+        }
+
+        // ─── Health ───────────────────────────────────────────────────────────────
+        async function loadHealth() {
+            try {
+                const h = await apiFetch('/health');
+                const svc = h.services || {};
+                document.getElementById('healthContent').innerHTML = Object.entries(svc).map(([k, v]) => `
+      <div class="activity-item">
+        <div class="activity-dot" style="background:${v === 'ok' || v === 'healthy' ? 'var(--success)' : 'var(--danger)'}"></div>
+        <div class="activity-content">
+          <div class="activity-title">${k}</div>
+          <div class="activity-meta">${v}</div>
+        </div>
+        <div>${statusBadge(v === 'ok' || v === 'healthy' ? 'success' : 'failed')}</div>
+      </div>`).join('') || '<div class="empty-state"><p>No health data</p></div>';
+            } catch (e) {
+                document.getElementById('healthContent').innerHTML = `<div class="empty-state" style="color:var(--danger)"><p>Health check failed: ${e.message}</p></div>`;
+            }
+        }
+
+        // ─── Polling ──────────────────────────────────────────────────────────────
+        function startPoll(runId) {
+            stopPoll();
+            _pollTimer = setInterval(() => loadRunDashboard(runId), 4000);
+        }
+        function stopPoll() {
+            if (_pollTimer) clearInterval(_pollTimer);
+            _pollTimer = null;
+        }
+
+        // ─── Add Site Modal ────────────────────────────────────────────────────────
+        function openAddSiteModal() {
+            document.getElementById('modalBox').innerHTML = `
+    <div class="modal-head">
+      <div class="modal-title">Add New Site</div>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal()">✕</button>
+    </div>
+    <div class="form-group">
+      <label class="form-label">URL</label>
+      <input class="form-input" id="newUrl" placeholder="https://example.com" />
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Geo</label>
+        <input class="form-input" id="newGeo" placeholder="US" value="GH"/>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Language</label>
+        <input class="form-input" id="newLang" placeholder="en" value="en"/>
+      </div>
+      <div class="form-group" style="margin:0">
+        <label class="form-label">Device</label>
+        <select class="form-select" id="newDevice">
+          <option value="desktop">Desktop</option>
+          <option value="mobile">Mobile</option>
+        </select>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;">
+      <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="submitNewSite(this)">Add Site</button>
+    </div>
+  `;
+            document.getElementById('modalOverlay').classList.add('open');
+            setTimeout(() => document.getElementById('newUrl')?.focus(), 50);
+        }
+
+        async function submitNewSite(btn) {
+            const url = document.getElementById('newUrl').value.trim();
+            if (!url) return toast('URL required', 'error');
+            btn.disabled = true; btn.textContent = 'Adding…';
+            try {
+                await apiFetch('/sites', {
+                    method: 'POST', body: JSON.stringify({
+                        url, geo: document.getElementById('newGeo').value || 'GH',
+                        language: document.getElementById('newLang').value || 'en',
+                        device: document.getElementById('newDevice').value || 'desktop',
+                    })
+                });
+                toast('Site added', 'success');
+                closeModal();
+                loadSites(); loadOverview();
+            } catch (e) { toast('Failed: ' + e.message, 'error'); }
+            finally { btn.disabled = false; btn.textContent = 'Add Site'; }
+        }
+
+        // ─── Modal ─────────────────────────────────────────────────────────────────
+        function closeModal() { document.getElementById('modalOverlay').classList.remove('open'); }
+        function closeModalOnBackdrop(e) { if (e.target.id === 'modalOverlay') closeModal(); }
+
+        // ─── Toast ─────────────────────────────────────────────────────────────────
+        function toast(msg, type = 'success') {
+            const el = document.createElement('div');
+            el.className = `toast-item ${type}`;
+            el.textContent = (type === 'success' ? '✓ ' : '✕ ') + msg;
+            document.getElementById('toast').appendChild(el);
+            setTimeout(() => el.remove(), 3500);
+        }
+
+        // ─── Helpers ───────────────────────────────────────────────────────────────
+        function fmtDate(v) {
+            if (!v) return '—';
+            try { return new Date(v).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }); }
+            catch { return '—'; }
+        }
+
+        function durationMs(start, end) {
+            if (!start) return null;
+            return (end ? new Date(end) : new Date()) - new Date(start);
+        }
+
+        function durStr(start, end) {
+            const ms = durationMs(start, end);
+            if (ms === null) return null;
+            if (ms < 1000) return ms + 'ms';
+            if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+            return Math.floor(ms / 60000) + 'm ' + Math.floor((ms % 60000) / 1000) + 's';
+        }
+
+        function statusBadge(s) {
+            const map = { success: 'badge-success', running: 'badge-running', failed: 'badge-failed', queued: 'badge-queued', ok: 'badge-success', healthy: 'badge-success' };
+            return `<span class="badge ${map[s] || 'badge-queued'}">${s}</span>`;
+        }
+
+        // ─── Auth check ───────────────────────────────────────────────────────────
+        function checkAuth() {
+            if (!AUTH_TOKEN) {
+                document.getElementById('modalBox').innerHTML = `
+      <div class="modal-head"><div class="modal-title">Login</div></div>
+      <div class="form-group">
+        <label class="form-label">JWT Token</label>
+        <input class="form-input" id="tokenInput" placeholder="Bearer token..." style="font-size:10px;"/>
+      </div>
+      <button class="btn btn-primary" style="width:100%" onclick="saveToken()">Connect</button>
+    `;
+                document.getElementById('modalOverlay').classList.add('open');
+            } else {
+                loadOverview();
+            }
+        }
+
+        function saveToken() {
+            const t = document.getElementById('tokenInput').value.trim();
+            if (!t) return;
+            AUTH_TOKEN = t;
+            localStorage.setItem('seo_token', t);
+            closeModal();
+            loadOverview();
+        }
+
+        // ─── Boot ──────────────────────────────────────────────────────────────────
+        checkAuth();
+    </script>
+</body>
+
+</html>

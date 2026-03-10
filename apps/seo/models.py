@@ -2,6 +2,7 @@
 import json
 import uuid
 from django.db import models
+from django.contrib.auth.models import User
 from django.db.models import Q
 
 class ClientSite(models.Model):
@@ -15,6 +16,7 @@ class ClientSite(models.Model):
     device = models.CharField(max_length=16, default="desktop")  # desktop|mobile
 
     niche_label = models.CharField(max_length=128, null=True, blank=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sites", null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -33,6 +35,7 @@ class AuditRun(models.Model):
 
     status = models.CharField(max_length=16, choices=Status.choices, default=Status.QUEUED)
 
+    last_reconciled_at = models.DateTimeField(null=True, blank=True)  # ← ADD THIS
     # provider + limits + geo + device + language
     config = models.JSONField(default=dict)
 
@@ -303,3 +306,109 @@ class OutboxEvent(models.Model):
         indexes = [
             models.Index(fields=["status", "next_retry_at"]),
         ]
+        
+class LLMBatch(models.Model):
+    """One row per prompt sent to the LLM."""
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    audit_run  = models.ForeignKey("AuditRun", on_delete=models.CASCADE, related_name="llm_batches", null=True, blank=True)
+    provider   = models.CharField(max_length=64)
+    model      = models.CharField(max_length=128, blank=True, default="")
+    prompt     = models.TextField()                          # full prompt stored here
+    system     = models.TextField(blank=True, default="")   # system prompt
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["audit_run", "provider"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+
+class LLMRun(models.Model):
+    """One row per LLM call result — success or failure."""
+
+    class Status(models.TextChoices):
+        SUCCESS = "success", "Success"
+        FAILED  = "failed",  "Failed"
+
+    class ParseStatus(models.TextChoices):
+        OK      = "ok",      "OK"
+        FAILED  = "failed",  "Failed"
+        SKIPPED = "skipped", "Skipped"
+
+    id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    audit_run  = models.ForeignKey("AuditRun", on_delete=models.CASCADE, related_name="llm_runs", null=True, blank=True)
+    batch      = models.ForeignKey("LLMBatch", on_delete=models.SET_NULL, related_name="runs", null=True, blank=True)
+
+    provider   = models.CharField(max_length=64)
+    model      = models.CharField(max_length=128, blank=True, default="")
+    status     = models.CharField(max_length=16, choices=Status.choices, default=Status.FAILED)
+
+    # response
+    response        = models.JSONField(null=True, blank=True)   # full parsed JSON or error dict
+    response_raw    = models.TextField(blank=True, default="")  # raw text from LLM
+
+    # observability
+    prompt_tokens      = models.IntegerField(null=True, blank=True)
+    completion_tokens  = models.IntegerField(null=True, blank=True)
+    total_tokens       = models.IntegerField(null=True, blank=True)
+    latency_seconds    = models.FloatField(null=True, blank=True)
+
+    # parse
+    parse_status  = models.CharField(max_length=16, choices=ParseStatus.choices, null=True, blank=True)
+    parse_error   = models.TextField(blank=True, default="")
+    recs_parsed   = models.IntegerField(null=True, blank=True)
+
+    # failure
+    error             = models.TextField(blank=True, default="")
+    traceback_snippet = models.TextField(blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["audit_run", "provider"]),
+            models.Index(fields=["batch"]),
+            models.Index(fields=["status"]),
+            models.Index(fields=["created_at"]),
+        ]
+
+
+class Notification(models.Model):
+
+    class EventType(models.TextChoices):
+        RUN_STARTED      = "run_started"
+        STEP_SUCCESS     = "step_success"
+        STEP_FAILED      = "step_failed"
+        RUN_COMPLETE     = "run_complete"
+        RUN_FAILED       = "run_failed"
+
+    class Channel(models.TextChoices):
+        IN_APP = "in_app"
+        EMAIL  = "email"   # future
+        PUSH   = "push"    # future (FCM)
+
+    id        = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user      = models.ForeignKey(User, on_delete=models.CASCADE, related_name="notifications", null=True, blank=True)
+    audit_run = models.ForeignKey(AuditRun, on_delete=models.CASCADE, related_name="notifications")
+
+    event_type = models.CharField(max_length=32, choices=EventType.choices)
+    channel    = models.CharField(max_length=16, choices=Channel.choices, default=Channel.IN_APP)
+
+    title = models.CharField(max_length=255)
+    body  = models.TextField()
+    meta  = models.JSONField(default=dict, blank=True)  # step name, counts, errors etc
+
+    read       = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "-created_at"]),
+            models.Index(fields=["audit_run", "-created_at"]),
+            models.Index(fields=["user", "read"]),
+        ]
+

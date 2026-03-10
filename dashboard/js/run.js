@@ -44,22 +44,30 @@ function stopPolling() {
         State.pollingInterval = null;
     }
 }
-
+function getRunIdFromHash() {
+    const hash = window.location.hash; // "#run:0476f2a5-518c-45bb-b616-69ae4c4fe3a7"
+    if (!hash.startsWith("#run:")) return null;
+    return hash.replace("#run:", "");
+}
 function init() {
     const params = new URLSearchParams(window.location.search);
     State.runId = params.get("run_id");
+    // ← ADD: start watching if page loads on a run URL
+    State.runId = getRunIdFromHash();
+    if (State.runId) Notifications.watchRun(State.runId);
 
     if (!State.runId) {
-        alert("Missing run_id");
+        console.log("Missing run_id");
         return;
     }
 
-    loadRun();
-    document.getElementById("retryBtn").onclick = async () => {
-        API.retryRun(State.runId, { method: "POST" });
-        stopPolling();
-        loadRun();
-    };
+    // loadRun();
+    Notifications.watchRun(State.runId);
+    // document.getElementById("retryBtn").onclick = async () => {
+    //     API.retryRun(State.runId, { method: "POST" });
+    //     stopPolling();
+    //     loadRun();
+    // };
 }
 async function loadHealth() {
     const res = await fetch("/api/health/");
