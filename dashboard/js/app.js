@@ -8,4 +8,4 @@ document.getElementById("logoutBtn").onclick = () => {
     window.location.href = "index.html";
 };
 
-Router.loadFromHash();
+// Router.loadFromHash();
