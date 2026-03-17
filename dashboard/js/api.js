@@ -1,5 +1,6 @@
 // js/api.js
-const API_BASE = "http://localhost:8000/api";
+// const API_BASE = `${location.origin}/api`;
+const API_BASE = `http://127.0.0.1:8500/api`;
 
 function setButtonState(button, enabled, loadingText = "Loading...") {
     if (!button) return;
