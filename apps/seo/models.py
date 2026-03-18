@@ -8,19 +8,36 @@ from django.db.models import Q
 class ClientSite(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
-    url = models.URLField(unique=True)
-    normalized_url = models.URLField(unique=True)
+    url = models.URLField()
+    normalized_url = models.URLField()
 
     geo = models.CharField(max_length=32, default="GH")
     language = models.CharField(max_length=16, default="en")
-    device = models.CharField(max_length=16, default="desktop")  # desktop|mobile
+    device = models.CharField(max_length=16, default="desktop")
 
     niche_label = models.CharField(max_length=128, null=True, blank=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sites", null=True, blank=True)
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name="sites",
+        null=True,
+        blank=True
+    )
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "normalized_url"],
+                name="uniq_user_normalized_url"
+            ),
+            models.UniqueConstraint(
+                fields=["user", "url"],
+                name="uniq_user_url"
+            ),
+        ]
 
 class AuditRun(models.Model):
     class Status(models.TextChoices):

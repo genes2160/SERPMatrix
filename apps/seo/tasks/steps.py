@@ -203,7 +203,7 @@ def fetch_client_page(self, run_id: str):
                     "h1": h1_text,
                     "word_count": word_count,
                 },
-                "raw_html_ref": None,
+                "raw_html_ref": html,
             },
         )
 

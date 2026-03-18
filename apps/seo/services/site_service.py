@@ -13,8 +13,8 @@ def create_site(*, url: str, geo: str, language: str, device: str, user) -> Clie
     normalized = normalize_url(url)
 
     site, created = ClientSite.objects.get_or_create(
-        normalized_url=normalized,
         user=user,  # scope per user
+        normalized_url=normalized,
         defaults={
             "url": url,
             "geo": geo,
