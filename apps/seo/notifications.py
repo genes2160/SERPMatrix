@@ -21,11 +21,18 @@ def notify(
         return
 
     try:
-        user = getattr(run, "user", None)  # ← resolved from run, no call site concern
+        # Explicitly tie to the owner of the client site
+        user = getattr(run.client_site, "user", None)
+        if user is None:
+            logger.warning(
+                "⚠️ [NOTIFY] Skipped — run.client_site.user is None | run_id=%s",
+                getattr(run, "id", None),
+            )
+            return
 
         Notification.objects.create(
             audit_run  = run,
-            user       = user,
+            user       = user,       # ✅ guaranteed correct user
             event_type = event_type,
             channel    = channel,
             title      = title,
@@ -34,7 +41,9 @@ def notify(
         )
         logger.info(
             "🔔 Notification created | run_id=%s | user=%s | event=%s | title=%s",
-            run.id, getattr(user, "id", None), event_type, title,
+            run.id, user.id, event_type, title,
         )
     except Exception as e:
-        logger.exception("❌ Notification write failed | run_id=%s | error=%s", run.id, str(e))
+        logger.exception(
+            "❌ Notification write failed | run_id=%s | error=%s", run.id, str(e)
+        )
