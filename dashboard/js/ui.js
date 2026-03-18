@@ -672,12 +672,13 @@ const UI = {
     catch (e) { if (!silent) Toast.error(e.message || "Failed to load run"); return; }
 
     const run = data.run;
+    const site = data.site;
     const steps = (data.steps || []).map(s => ({ ...s, step_name: s.step_name || s.step || s.name }))
       .sort((a, b) => STEP_ORDER.indexOf(a.step_name) - STEP_ORDER.indexOf(b.step_name));
     const ai = data.ai || {}, recs = ai.recommendations || [];
 
     const heroUrlEl = document.getElementById("heroUrl");
-    if (heroUrlEl) heroUrlEl.textContent = run.site_url || run.id;
+    if (heroUrlEl) heroUrlEl.textContent = site.normalized_url || run.site_url || run.id;
     const heroStatus = document.getElementById("heroStatus");
     if (heroStatus) heroStatus.innerHTML = UI._statusBadge(run.status);
     const heroStats = document.getElementById("heroStats");

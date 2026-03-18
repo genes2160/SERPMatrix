@@ -6,6 +6,7 @@ import time
 from typing import List, Dict, Any, Optional
 import json
 from apps.seo.providers.serp_base import extract_domain, fetch_page
+from apps.seo.utils.functions import compress_html, extract_page_data
 from celery import shared_task, current_task
 from django.db import transaction
 from django.db.models import Max
@@ -155,7 +156,6 @@ def _finish_failed(step: RunStep, attempt: RunStepAttempt, err: str):
 @shared_task(
     name="apps.seo.tasks.steps.fetch_client_page",
     bind=True,
-    
     retry_backoff=True,
     retry_backoff_max=60,
     retry_jitter=True,
@@ -166,30 +166,34 @@ def fetch_client_page(self, run_id: str):
     if step is None:
         return {"run_id": run_id, "step": "FETCH_CLIENT", **info}
 
+    run = AuditRun.objects.select_related("client_site").get(id=run_id)
     try:
-        run = AuditRun.objects.select_related("client_site").get(id=run_id)
         url = run.client_site.url
 
-        # Real HTTP fetch
-        response = fetch_page(url)
+        logger.info("[FETCH_CLIENT] Fetching URL | %s", url)
 
+        response = fetch_page(url)
         if not response:
-            raise ValueError(f"fetch_page returned empty response for {url}")
+            raise ValueError(f"Empty response for {url}")
 
         html = response.text or ""
+
+        # ---- Hash ----
         html_hash = hashlib.sha256(html.encode("utf-8")).hexdigest()
 
-        soup = BeautifulSoup(html, "html.parser")
-        title = soup.title.string.strip() if soup.title else None
-        h1 = soup.find("h1")
-        h1_text = h1.get_text(strip=True) if h1 else None
-        word_count = len(soup.get_text().split())
+        # ---- Extract structured data ----
+        extracted_data = extract_page_data(html, url)
+
+        # ---- Compress HTML ----
+        compressed_html = compress_html(html)
 
         logger.info(
-            "✅ [FETCH_CLIENT] Page fetched | url=%s | status=%s | title=%s | words=%s",
-            url, response.status_code, title, word_count,
+            "✅ [FETCH_CLIENT] Extracted | words=%s | keywords=%s",
+            extracted_data.get("word_count"),
+            len(extracted_data.get("top_keywords", [])),
         )
 
+        # ---- Save snapshot ----
         PageSnapshot.objects.update_or_create(
             audit_run=run,
             url=url,
@@ -198,42 +202,51 @@ def fetch_client_page(self, run_id: str):
                 "http_status": response.status_code,
                 "html_hash": html_hash,
                 "content_type": response.headers.get("Content-Type"),
-                "extracted": {
-                    "title": title,
-                    "h1": h1_text,
-                    "word_count": word_count,
-                },
-                "raw_html_ref": html,
+                "extracted": extracted_data,
+                "raw_html_ref": compressed_html,  # ✅ compressed now
             },
         )
 
-        _finish_success(step, attempt, meta={"url": url, "html_hash": html_hash, "word_count": word_count})
+        _finish_success(
+            step,
+            attempt,
+            meta={
+                "url": url,
+                "word_count": extracted_data.get("word_count"),
+                "keywords": len(extracted_data.get("top_keywords", [])),
+            },
+        )
+
         notify(
             run=run,
             event_type=Notification.EventType.STEP_SUCCESS,
             title="Page fetched",
-            body=f"Successfully fetched {url}",
-            meta={"step": "FETCH_CLIENT", "word_count": word_count},
+            body=f"Successfully fetched and analyzed {url}",
+            meta={
+                "step": "FETCH_CLIENT",
+                "word_count": extracted_data.get("word_count"),
+            },
         )
+
         return {"run_id": run_id, "step": "FETCH_CLIENT", "status": "success"}
+
     except Exception as e:
         err = str(e)
+        logger.exception("[FETCH_CLIENT] FAILED | run_id=%s | error=%s", run_id, err)
+
         _finish_failed(step, attempt, err)
 
-        if step.attempts >= 3: 
-            logger.error("⛔ [FETCH_CLIENT] Max retries reached | run_id=%s", run_id)
+        if step.attempts > 3:
             notify(
                 run=run,
                 event_type=Notification.EventType.STEP_FAILED,
-                title=f"{step.step_name} failed",
-                body=f"Step failed after {step.attempts} attempts. Error: {e}",
-                meta={"step": step.step_name, "attempts": step.attempts, "error": str(e)},
+                title="Fetch failed",
+                body=f"Failed after {step.attempts} attempts: {err}",
+                meta={"step": "FETCH_CLIENT", "error": err},
             )
-            raise 
+            raise
         else:
-            logger.warning("🔁 [FETCH_CLIENT] Retrying step | attempt=%s", step.attempts)
             raise self.retry(countdown=30)
-
 
 @shared_task(
     name="apps.seo.tasks.steps.classify_site",
@@ -249,8 +262,8 @@ def classify_site(self, run_id: str):
     if step is None:
         return {"run_id": run_id, "step": "CLASSIFY", **info}
 
+    run = AuditRun.objects.select_related("client_site").get(id=run_id)
     try:
-        run = AuditRun.objects.select_related("client_site").get(id=run_id)
 
         # Pull real data from the client snapshot
         client_snapshot = (
@@ -355,9 +368,9 @@ def build_keyword_set(self, run_id: str):
         logger.info("⏭️ [KEYWORDS] Step already handled | run_id=%s", run_id)
         return {"run_id": run_id, "step": "KEYWORDS", **info}
 
+    run = AuditRun.objects.get(id=run_id)
     try:
         logger.info("📥 [KEYWORDS] Loading run | run_id=%s", run_id)
-        run = AuditRun.objects.get(id=run_id)
 
         # ---- REAL SOURCE: client snapshot ----
         client_snapshot = (
@@ -483,9 +496,9 @@ def serp_capture_batch(self, run_id: str):
         logger.info("⏭️ [SERP] Step already completed or skipped | run_id=%s", run_id)
         return {"run_id": run_id, "step": "SERP", **info}
 
+    run = AuditRun.objects.select_related("client_site").get(id=run_id)
     try:
         logger.info("📥 [SERP] Fetching AuditRun from DB | run_id=%s", run_id)
-        run = AuditRun.objects.select_related("client_site").get(id=run_id)
 
         logger.info("📥 [SERP] Run loaded | site=%s | status=%s",
                     run.client_site.normalized_url, run.status)
@@ -510,17 +523,17 @@ def serp_capture_batch(self, run_id: str):
 
             # NEW: handle empty/"null"/"none" strings safely
             if not s or s.lower() in ("null", "none", "undefined"):
-                logger.warning("⚠️ [SERP] Config string is empty/null-like | raw=%r", config)  # NEW:
+                logger.warning("⚠️ [SERP] Config string is empty/null-like | raw=%r", config)
                 config = {}
             else:
                 try:
-                    logger.info("🧩 [SERP] Parsing config JSON string | raw=%r", s[:200])  # NEW:
-                    config = json.loads(s)  # NEW:
-                except json.JSONDecodeError as err:  # NEW:
-                    logger.error("❌ [SERP] Config JSON decode failed | raw=%r | error=%s", s[:200], str(err))  # NEW:
+                    logger.info("🧩 [SERP] Parsing config JSON string | raw=%r", s[:200])
+                    config = json.loads(s)
+                except json.JSONDecodeError as err:
+                    logger.error("❌ [SERP] Config JSON decode failed | raw=%r | error=%s", s[:200], str(err))
                     config = {}
         else:
-            logger.info("✅ [SERP] Config already dict | keys=%s", list((config or {}).keys()))  # NEW:
+            logger.info("✅ [SERP] Config already dict | keys=%s", list((config or {}).keys()))
 
         logger.info("⚙️ [SERP] Config detected | %s", str(config))
 
@@ -570,14 +583,17 @@ def serp_capture_batch(self, run_id: str):
             logger.info("📊 [SERP] Results fetched | keyword=%s | total_results=%s",
                         kw, len(organic_results))
 
-            top_results = organic_results[:5]
-            logger.info("📊 [SERP] Top 5 results extracted | keyword=%s", kw)
+            top_results = organic_results[:10]
+            logger.info("📊 [SERP] Top 10 results extracted | keyword=%s", kw)
 
             competitors = []
             client_position = None
+            clean_results = []  # NEW: structured results
 
             for idx, result in enumerate(top_results, start=1):
                 result_url = result.get("link")
+                title = result.get("title")      # NEW
+                snippet = result.get("snippet")  # NEW
 
                 if not result_url:
                     logger.warning("⚠️ [SERP] Missing link in result | keyword=%s | idx=%s", kw, idx)
@@ -588,37 +604,98 @@ def serp_capture_batch(self, run_id: str):
                 logger.debug("🔎 [SERP] Result analyzed | keyword=%s | idx=%s | domain=%s",
                              kw, idx, result_domain)
 
+                # NEW: structured result
+                clean_results.append({
+                    "position": idx,
+                    "link": result_url,
+                    "title": title,
+                    "snippet": snippet,
+                })
+
                 if result_domain == client_domain:
                     client_position = idx
                     logger.info("🏆 [SERP] Client found in SERP | keyword=%s | position=%s",
                                 kw, idx)
                 else:
-                    competitors.append(result_domain)
+                    competitors.append(result_url)
 
             logger.info("👥 [SERP] Competitors detected | keyword=%s | competitors=%s",
                         kw, competitors)
 
-            SerpSnapshot.objects.create(
-                audit_run=run,
-                keyword=kw,
-                provider=provider_name,
-                provider_meta={},
-                results={"top": top_results},
-            )
+            # AFTER
+            if not SerpSnapshot.objects.filter(audit_run=run, keyword=kw).exists():
+                SerpSnapshot.objects.create(
+                    audit_run=run,
+                    keyword=kw,
+                    provider=provider_name,
+                    provider_meta={},
+                    results={"top": clean_results},
+                )
+            else:
+                logger.info("⏭️ [SERP] SerpSnapshot already exists, skipping | keyword=%s", kw)
 
             logger.info("💾 [SERP] SerpSnapshot saved | keyword=%s", kw)
+            # AFTER
+            existing_kr = KeywordResult.objects.filter(audit_run=run, keyword=kw).first()
+            merged_competitors = list(set((existing_kr.competitor_urls or []) + competitors)) if existing_kr else competitors
 
-            KeywordResult.objects.create(
+            KeywordResult.objects.update_or_create(
                 audit_run=run,
                 keyword=kw,
-                client_position=client_position,
-                visibility_score=1 / (client_position or 100),
-                difficulty_score=0.5,
-                competitor_urls=competitors,
+                defaults={
+                    "client_position": client_position,
+                    "visibility_score": 1 / (client_position or 100),
+                    "difficulty_score": 0.5,
+                    "competitor_urls": merged_competitors,
+                },
             )
 
             logger.info("💾 [SERP] KeywordResult saved | keyword=%s | position=%s",
                         kw, client_position)
+
+        # =========================
+        # NEW: DOMAIN-BASED SEARCH
+        # =========================
+        logger.info("🌐 [SERP] Running domain-based search")
+
+        domain_query = client_domain
+
+        domain_results = provider.search(
+            keyword=domain_query,
+            geo=run.client_site.geo,
+            device=run.client_site.device,
+        )
+
+        domain_top = domain_results[:10]
+
+        domain_competitors = []
+
+        for result in domain_top:
+            url = result.get("link")
+            if not url:
+                continue
+
+            if extract_domain(url) != client_domain:
+                domain_competitors.append(url)
+
+        logger.info(
+            "🌐 [SERP] Domain competitors found | count=%s",
+            len(domain_competitors),
+        )
+        # AFTER
+        existing_domain_kr = KeywordResult.objects.filter(audit_run=run, keyword="__domain_search__").first()
+        merged_domain_competitors = list(set((existing_domain_kr.competitor_urls or []) + domain_competitors)) if existing_domain_kr else domain_competitors
+
+        KeywordResult.objects.update_or_create(
+            audit_run=run,
+            keyword="__domain_search__",
+            defaults={
+                "client_position": None,
+                "visibility_score": 0,
+                "difficulty_score": 0,
+                "competitor_urls": merged_domain_competitors,
+            },
+        )
 
         logger.info("✅ [SERP] All keywords processed | count=%s", len(keywords))
 
@@ -654,16 +731,17 @@ def serp_capture_batch(self, run_id: str):
             logger.warning("🔁 [SERP] Retrying step | attempt=%s", step.attempts)
             raise self.retry(countdown=30)
 
-@shared_task(name="apps.seo.tasks.steps.fetch_competitors",
+
+@shared_task(
+    name="apps.seo.tasks.steps.fetch_competitors",
     bind=True,
-    
     retry_backoff=True,
     retry_backoff_max=60,
     retry_jitter=True,
     max_retries=5,
 )
 def fetch_competitors(self, run_id: str):
-    logger.info("🔄 [COMPETITORS] Step started | run_id=%s", run_id)
+    logger.info("🔄 [COMPETITORS]  Step started | run_id=%s", run_id)
 
     step, attempt, info = _claim_step(run_id, RunStep.StepName.COMPETITORS)
 
@@ -671,140 +749,170 @@ def fetch_competitors(self, run_id: str):
                 str(step), str(attempt), str(info))
 
     if step is None:
-        logger.info("⏭️ [COMPETITORS] Step already handled | run_id=%s", run_id)
+        logger.info("⏭️ [COMPETITORS] Step already done | run_id=%s", run_id)
         return {"run_id": run_id, "step": "COMPETITORS", **info}
 
+    run = AuditRun.objects.get(id=run_id)
     try:
-        logger.info("📥 [COMPETITORS] Loading run | run_id=%s", run_id)
-        run = AuditRun.objects.get(id=run_id)
+
+        logger.info("📥 [COMPETITORS] Loading keyword results")
 
         keyword_results = run.keyword_results.all()
-        logger.info("📊 [COMPETITORS] Keyword results loaded | count=%s", keyword_results.count())
 
-        fetched_domains = set()
+        logger.info("📊 [COMPETITORS] KeywordResult count=%s", keyword_results.count())
+
+        # =========================
+        # NEW: COLLECT + DEDUPE URLS
+        # =========================
+        competitor_urls = set()
 
         for kr in keyword_results:
-            logger.info("🔍 [COMPETITORS] Processing KeywordResult | keyword=%s | competitors_count=%s",
-                        getattr(kr, "keyword", None), len(kr.competitor_urls or []))
+            urls = kr.competitor_urls or []
 
-            for domain in kr.competitor_urls:
-                if domain in fetched_domains:
-                    logger.debug("⏭️ [COMPETITORS] Domain already fetched | domain=%s", domain)
-                    continue
+            for url in urls:
+                if url:
+                    competitor_urls.add(url)
 
-                logger.info("🌐 [COMPETITORS] Fetching competitor page | domain=%s", domain)
+        logger.info(
+            "👥 [COMPETITORS] Unique URLs collected | total=%s",
+            len(competitor_urls),
+        )
 
-                try:
-                    response = fetch_page(domain)
+        # =========================
+        # NEW: AVOID REFETCHING
+        # =========================
+        existing_urls = set(
+            PageSnapshot.objects.filter(
+                audit_run=run,
+                role=PageSnapshot.Role.COMPETITOR
+            ).values_list("url", flat=True)
+        )
 
-                    # if ran into error page is blank nothing for beautiful soup to fetch
-                    if not response:
-                        logger.warning("⚠️ [COMPETITORS] Empty/No response from fetch_page | domain=%s", domain)
+        logger.info(
+            "📦 [COMPETITORS] Already fetched | count=%s",
+            len(existing_urls),
+        )
 
-                        import hashlib
-                        html_hash = hashlib.sha256("html_content".encode()).hexdigest()
+        urls_to_fetch = competitor_urls - existing_urls
 
-                        logger.info("💾 [COMPETITORS] Saving placeholder snapshot | domain=%s | http_status=404", domain)
-                        PageSnapshot.objects.update_or_create(  # NEW:
-                            audit_run=run,
-                            url=f"https://{domain}",
-                            role=PageSnapshot.Role.COMPETITOR,
-                            defaults={  # NEW:
-                                "http_status": 404,  # NEW: int field (you had "404" string)
-                                "html_hash": html_hash,
-                                "content_type": "Unknown",
-                                "extracted": {
-                                    "title": "empty",
-                                    "h1": "empty",
-                                    "word_count": 0,
-                                },
-                                "raw_html_ref": "unknown ran into error",
-                            },
-                        )
-                        logger.error("❌ [COMPETITORS] Raising after placeholder snapshot | domain=%s", domain)
-                        fetched_domains.add(domain)  # NEW: count it so we don't loop it again
-                        continue  # NEW: do not raise; move to next competitor
+        logger.info(
+            "🚀 [COMPETITORS] To fetch | count=%s",
+            len(urls_to_fetch),
+        )
 
-                    logger.info("✅ [COMPETITORS] Response received | domain=%s | status=%s | content_type=%s",
-                                domain,
-                                getattr(response, "status_code", None),
-                                getattr(response, "headers", {}).get("Content-Type") if getattr(response, "headers", None) else None)
+        fetched = 0
+        failed = 0
 
-                    soup = BeautifulSoup(response.text, "html.parser")
+        for url in urls_to_fetch:
+            logger.info("🌐 [COMPETITORS] Fetching | %s", url)
 
-                    title = soup.title.string.strip() if soup.title else None
-                    h1 = soup.find("h1")
-                    h1_text = h1.get_text(strip=True) if h1 else None
-                    word_count = len(soup.get_text().split())
+            try:
+                response = fetch_page(url)
 
-                    logger.info("🧾 [COMPETITORS] Extracted | domain=%s | title=%s | h1=%s | words=%s",
-                                domain, str(title), str(h1_text), word_count)
+                if not response:
+                    raise ValueError("Empty response")
 
-                    # NEW: html_hash must NEVER be None (model NOT NULL)
-                    import hashlib  # NEW:
-                    html_hash = hashlib.sha256((response.text or "").encode()).hexdigest()  # NEW:
-                    logger.info("🔑 [COMPETITORS] Computed html_hash | domain=%s | hash=%s", domain, html_hash)  # NEW:
+                html = response.text or ""
 
-                    logger.info("💾 [COMPETITORS] Saving PageSnapshot | domain=%s", domain)
-                    PageSnapshot.objects.update_or_create(  # NEW:
-                        audit_run=run,
-                        url=f"https://{domain}",
-                        role=PageSnapshot.Role.COMPETITOR,
-                        defaults={  # NEW:
-                            "http_status": response.status_code,
-                            "html_hash": html_hash,
-                            "content_type": response.headers.get("Content-Type"),
-                            "extracted": {
-                                "title": title,
-                                "h1": h1_text,
-                                "word_count": word_count,
-                            },
-                            "raw_html_ref": response.text,
-                        },
-                    )
-                    fetched_domains.add(domain)
-                    logger.info("✅ [COMPETITORS] Domain saved | domain=%s | fetched_total=%s",
-                                domain, len(fetched_domains))
+                # ---- hash ----
+                html_hash = hashlib.sha256(html.encode("utf-8")).hexdigest()
 
-                except Exception as ex:
-                    logger.exception("❌ [COMPETITORS] Domain fetch/save failed | domain=%s | error=%s",
-                                     domain, str(ex))
-                    # transient failure → retry whole step
-                    raise
+                # ---- extract ----
+                extracted_data = extract_page_data(html, url)
 
-        logger.info("✅ [COMPETITORS] Completed | competitors_fetched=%s", len(fetched_domains))
+                # ---- compress ----
+                compressed_html = compress_html(html)
 
-        _finish_success(step, attempt, meta={"competitors_fetched": len(fetched_domains)})
+                PageSnapshot.objects.update_or_create(
+                    audit_run=run,
+                    url=url,
+                    role=PageSnapshot.Role.COMPETITOR,
+                    defaults={
+                        "http_status": response.status_code,
+                        "html_hash": html_hash,
+                        "content_type": response.headers.get("Content-Type"),
+                        "extracted": extracted_data,
+                        "raw_html_ref": compressed_html,
+                    },
+                )
+
+                fetched += 1
+
+                logger.info(
+                    "✅ [COMPETITORS] Saved | url=%s | words=%s",
+                    url,
+                    extracted_data.get("word_count"),
+                )
+
+            except Exception as ex:
+                failed += 1
+                logger.warning(
+                    "⚠️ [COMPETITORS] Failed | url=%s | error=%s",
+                    url,
+                    str(ex),
+                )
+                continue  # IMPORTANT: don't kill whole batch
+
+        logger.info(
+            "📊 [COMPETITORS] Done | fetched=%s | failed=%s | total=%s",
+            fetched,
+            failed,
+            len(urls_to_fetch),
+        )
+
+        _finish_success(
+            step,
+            attempt,
+            meta={
+                "fetched": fetched,
+                "failed": failed,
+                "total": len(competitor_urls),
+            },
+        )
 
         notify(
             run=run,
             event_type=Notification.EventType.STEP_SUCCESS,
-            title="Competitors fetched",
-            body=f"Fetched {len(fetched_domains)} competitor pages",
-            meta={"step": "COMPETITORS", "competitors_fetched": len(fetched_domains)},
+            title="Competitors analyzed",
+            body=f"Fetched {fetched} competitor pages",
+            meta={
+                "step": "COMPETITORS",
+                "fetched": fetched,
+                "failed": failed,
+                "total": len(competitor_urls),
+            },
         )
-        logger.info("🎯 [COMPETITORS] Step marked SUCCESS | run_id=%s", run_id)
 
-        return {"run_id": run_id, "step": "COMPETITORS", "status": "success"}
+        return {
+            "run_id": run_id,
+            "step": "COMPETITORS",
+            "status": "success",
+            "fetched": fetched,
+            "failed": failed,
+        }
 
     except Exception as e:
-        logger.exception("❌ [COMPETITORS] Step FAILED | run_id=%s | error=%s", run_id, str(e))
+        err = str(e)
+        logger.exception("❌ [COMPETITORS] FAILED | run_id=%s | error=%s", run_id, err)
 
-        _finish_failed(step, attempt, str(e))
+        _finish_failed(step, attempt, err)
 
-        if step.attempts >= 3: 
+        if step.attempts >= 5:
             logger.error("⛔ [COMPETITORS] Max retries reached | run_id=%s", run_id)
+
             notify(
                 run=run,
                 event_type=Notification.EventType.STEP_FAILED,
-                title=f"{step.step_name} failed",
-                body=f"Step failed after {step.attempts} attempts. Error: {e}",
-                meta={"step": step.step_name, "attempts": step.attempts, "error": str(e)},
+                title="Competitor fetch failed",
+                body=f"Failed after {step.attempts} attempts: {err}",
+                meta={"step": "COMPETITORS", "error": err},
             )
-            raise    
+            raise
         else:
-            logger.warning("🔁 [COMPETITORS] Retrying whole step | attempt=%s", step.attempts)
+            logger.warning("🔁 [COMPETITORS] Retrying | attempt=%s", step.attempts)
             raise self.retry(countdown=30)
+
+
         
 @shared_task(name="apps.seo.tasks.steps.analyze_and_recommend",
     bind=True,
@@ -856,6 +964,55 @@ def analyze_and_recommend(self, run_id: str):
         ]
         logger.info("[ANALYZE] Prompt context | competitors=%s | keywords=%s", len(competitor_data), len(keyword_data))
 
+        # =========================
+        # NEW: PRE-ANALYSIS (STRUCTURED SIGNALS)
+        # =========================
+        logger.info("[ANALYZE] Running pre-analysis computations")
+
+        client_data = client_snapshot.extracted or {}
+
+        comp_word_counts = []
+        comp_keywords = []
+
+        for snap in competitor_snapshots:
+            data = snap.extracted or {}
+
+            if data.get("word_count"):
+                comp_word_counts.append(data["word_count"])
+
+            for kw in data.get("top_keywords", []):
+                if isinstance(kw, dict):
+                    comp_keywords.append(kw.get("kw"))
+                else:
+                    comp_keywords.append(kw)
+
+        from collections import Counter
+
+        avg_comp_words = int(sum(comp_word_counts) / len(comp_word_counts)) if comp_word_counts else 0
+        top_comp_keywords = [kw for kw, _ in Counter(comp_keywords).most_common(10)]
+
+        client_words = client_data.get("word_count", 0)
+        client_keywords_raw = client_data.get("top_keywords", [])
+
+        client_keywords = [
+            kw.get("kw") if isinstance(kw, dict) else kw
+            for kw in client_keywords_raw
+        ]
+
+        missing_keywords = [
+            kw for kw in top_comp_keywords
+            if kw not in client_keywords
+        ]
+
+        content_gap = avg_comp_words - client_words
+
+        logger.info(
+            "[ANALYZE] Pre-analysis | client_words=%s | avg_comp_words=%s | gap=%s | missing_kw=%s",
+            client_words,
+            avg_comp_words,
+            content_gap,
+            len(missing_keywords),
+        )
         prompt = build_analysis_prompt(
             client_url=run.client_site.url,
             client_extracted=client_snapshot.extracted or {},
@@ -864,6 +1021,13 @@ def analyze_and_recommend(self, run_id: str):
             geo=run.client_site.geo,
             language=run.client_site.language,
             device=run.client_site.device,
+            pre_analysis={
+                "client_word_count": client_words,
+                "avg_competitor_word_count": avg_comp_words,
+                "content_gap": content_gap,
+                "missing_keywords": missing_keywords[:10],
+                "top_competitor_keywords": top_comp_keywords,
+            },
         )
         logger.info("[ANALYZE] Prompt built | chars=%s | snippet=%s", len(prompt), prompt[:200])
 
@@ -970,7 +1134,7 @@ def analyze_and_recommend(self, run_id: str):
             )
             logger.info("[ANALYZE] Heuristics | client_wc=%s | avg_competitor_wc=%s", client_word_count, avg_competitor_wc)
 
-            if client_word_count < avg_competitor_wc:
+            if content_gap > 200:
                 Recommendation.objects.create(
                     audit_run=run,
                     keyword=None,
@@ -1145,8 +1309,14 @@ def analyze_and_recommend(self, run_id: str):
             raise self.retry(countdown=30)
 
    
-@shared_task(name="apps.seo.tasks.steps.finalize_run")
-def finalize_run(run_id: str):
+@shared_task(name="apps.seo.tasks.steps.finalize_run",
+    bind=True,
+    retry_backoff=True,
+    retry_backoff_max=60,
+    retry_jitter=True,
+    max_retries=3,
+)
+def finalize_run(self, run_id: str):
     logger.info("🏁 [FINALIZE] Step started | run_id=%s", run_id)
 
     step, attempt, info = _claim_step(run_id, RunStep.StepName.FINALIZE)
@@ -1160,9 +1330,9 @@ def finalize_run(run_id: str):
         logger.info("⏭️ [FINALIZE] Step already handled | run_id=%s | info=%s", run_id, info)
         return {"run_id": run_id, "step": "FINALIZE", **info}
 
+    run = AuditRun.objects.get(id=run_id)
     try:
         logger.info("📥 [FINALIZE] Loading run | run_id=%s", run_id)
-        run = AuditRun.objects.get(id=run_id)
         logger.info("✅ [FINALIZE] Run loaded | run_id=%s | status=%s", run_id, getattr(run, "status", None))
 
         logger.info("📊 [FINALIZE] Counting keyword_results | run_id=%s", run_id)

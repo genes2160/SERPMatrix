@@ -237,8 +237,12 @@ class DashboardOverviewView(APIView):
     def get(self, request):
         from django.db.models import Avg
 
-        total_sites = ClientSite.objects.count()  # old behavior
-        runs = AuditRun.objects.prefetch_related("steps").all()  # old behavior
+        total_sites =  ClientSite.objects.filter(
+            user=request.user
+        ).count()
+        runs = AuditRun.objects.filter(
+            client_site__user=request.user
+        ).prefetch_related("steps") 
 
         total_runs = runs.count()
         running_runs = failed_runs = success_runs = queued_runs = 0
@@ -250,8 +254,12 @@ class DashboardOverviewView(APIView):
             elif status == AuditRun.Status.SUCCESS: success_runs += 1
             else: queued_runs += 1
 
-        avg_visibility = KeywordResult.objects.aggregate(Avg("visibility_score"))["visibility_score__avg"] or 0
-
+        avg_visibility = KeywordResult.objects.filter(
+            audit_run__client_site__user=request.user
+        ).aggregate(
+            Avg("visibility_score")
+        )["visibility_score__avg"] or 0
+        
         return Response({
             "total_sites": total_sites,
             "total_runs": total_runs,
