@@ -15,6 +15,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 
+# Playwright — install browser + OS-level deps
+RUN python -m playwright install chromium
+RUN python -m playwright install-deps chromium
+
 COPY . /app
 
 # Optional: entrypoint for future (not strictly required)

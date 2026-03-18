@@ -155,6 +155,7 @@ def _build_keyword_blocks(keyword_results: list[dict]) -> list[dict]:
 def build_analysis_prompt(
     client_url: str,
     client_extracted: dict,
+    pre_analysis: dict,
     competitor_snapshots: list[dict],
     keyword_results: list[dict],
     geo: str = "",
@@ -186,14 +187,21 @@ def build_analysis_prompt(
         "[prompts] Built prompt | competitors=%s | keywords=%s",
         len(competitor_blocks), len(keyword_blocks),
     )
+    # NEW: include pre-analysis block (VERY IMPORTANT)
+    pre_analysis_block = pre_analysis or {}
 
+    logger.info(
+        "[prompts] Pre-analysis included | keys=%s",
+        list(pre_analysis_block.keys())
+    )
     # Use compact JSON (no indent) to save tokens
     prompt = (
-        "Analyse the following SEO data and return a JSON array of recommendations.\n\n"
+        "Analyse the following SEO data and return a JSON object with summary and recommendations.\n\n"
         f"=== CLIENT SITE ===\n{json.dumps(client_block, separators=(',', ':'))}\n\n"
+        f"=== PRE-ANALYSIS SIGNALS ===\n{json.dumps(pre_analysis_block, separators=(',', ':'))}\n\n"  # NEW
         f"=== COMPETITORS (top pages found in SERP) ===\n{json.dumps(competitor_blocks, separators=(',', ':'))}\n\n"
         f"=== KEYWORD RANKINGS ===\n{json.dumps(keyword_blocks, separators=(',', ':'))}\n\n"
-        "Respond with a JSON array only."
+        "Respond ONLY with valid JSON object containing summary and recommendations."
     )
 
     logger.debug("[prompts] Prompt length | chars=%s", len(prompt))
